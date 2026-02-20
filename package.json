@@ -13,7 +13,7 @@
     "deploy": "shopify app deploy",
     "config:use": "shopify app config use",
     "env": "shopify app env",
-    "start": "node ./build/server/index.js",
+    "start": "react-router-serve ./build/server/index.js",
     "docker-start": "npm run setup && npm run start",
     "setup": "prisma generate && prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
@@ -28,6 +28,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.0",
     "@react-router/fs-routes": "^7.13.0",
+    "@react-router/serve": "^7.13.0",
     "@sentry/node": "^9.17.0",
     "@sentry/react": "^9.17.0",
     "@shopify/app-bridge": "^3.7.11",
