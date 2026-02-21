@@ -2,7 +2,7 @@
 
 client_id = "f6166e6ce7f9ce69ec133e1800dcf9db"
 name = "AI SEO Assistant"
-application_url = "https://example.com"
+application_url = "https://ai-seo-assistant-8mqt.onrender.com"
 embedded = true
 
 [build]
@@ -14,14 +14,19 @@ api_version = "2026-04"
 
   [[webhooks.subscriptions]]
   topics = [ "app/uninstalled" ]
-  uri = "/webhooks/app/uninstalled"
+  uri = "https://ai-seo-assistant-8mqt.onrender.com/webhooks/app/uninstalled"
 
   [[webhooks.subscriptions]]
   topics = [ "app/scopes_update" ]
-  uri = "/webhooks/app/scopes_update"
+  uri = "https://ai-seo-assistant-8mqt.onrender.com/webhooks/app/scopes_update"
+
+  # Mandatory compliance webhooks (customer privacy)
+  [[webhooks.subscriptions]]
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+  uri = "https://ai-seo-assistant-8mqt.onrender.com/webhooks"
 
 [access_scopes]
 scopes = "read_products,write_products,read_content,write_content"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://ai-seo-assistant-8mqt.onrender.com/api/auth" ]
