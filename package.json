@@ -24,7 +24,7 @@
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
     "typecheck": "react-router typegen && tsc --noEmit",
-    "start": "HOST=0.0.0.0 PORT=${PORT:-8080} react-router-serve ./build/server/index.js",
+    "start": "HOST=0.0.0.0 PORT=${PORT:-8080} react-router-serve ./build/server/index.js"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
