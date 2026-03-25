@@ -1,21 +1,23 @@
+// scripts/start-with-worker.js
 import { spawn } from "node:child_process";
 
-function run(cmd, args, opts = {}) {
-  const p = spawn(cmd, args, { stdio: "inherit", ...opts });
+const env = {
+  ...process.env,
+  NODE_ENV: "production",
+  HOST: "0.0.0.0",
+  PORT: process.env.PORT || "8080",
+};
+
+function run(cmd, args, name) {
+  const p = spawn(cmd, args, { stdio: "inherit", env });
+  p.on("exit", (code) => {
+    console.log(`[${name}] exited with code ${code}`);
+  });
   return p;
 }
 
-// 1) Web her zaman ayağa kalksın (Cloud Run PORT dinlesin)
-const web = run("npm", ["run", "start"]);
+// 1) Web server (ana proses)
+run("npm", ["run", "start"], "web");
 
-// 2) Worker arka planda çalışsın; crash olursa sadece logla
-const worker = run("npm", ["run", "worker"]);
-worker.on("exit", (code) => {
-  console.error(`[worker] exited with code ${code} (web continues)`);
-});
-
-// Web düşerse container kapanabilir (normal)
-web.on("exit", (code) => {
-  console.error(`[web] exited with code ${code}`);
-  process.exit(code ?? 1);
-});
+// 2) Worker (arka plan) - crash ederse web yaşamaya devam eder
+run("node", ["app/worker/seo.worker.js"], "worker");
