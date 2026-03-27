@@ -1,3 +1,4 @@
+// app/routes/app._index.jsx
 import { useMemo } from "react";
 import {
   useFetcher,
@@ -6,6 +7,7 @@ import {
   useRouteError,
   isRouteErrorResponse,
 } from "react-router";
+
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   Page,
@@ -18,18 +20,16 @@ import {
   Banner,
   TextField,
 } from "@shopify/polaris";
+
 import { authenticate } from "../shopify.server";
 
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-  });
-}
-
 export const loader = async ({ request }) => {
+  // ✅ Embedded admin sayfası açılırken auth kontrolü
   await authenticate.admin(request);
-  return { ok: true }; // JSON Response DEĞİL, normal loader data
+
+  // ✅ ÖNEMLİ: Response(JSON) döndürme -> sayfa "null/json" basabiliyor.
+  // Plain data (veya null) dön; component render etsin.
+  return null;
 };
 
 export const action = async ({ request }) => {
@@ -38,7 +38,7 @@ export const action = async ({ request }) => {
   const intent = String(formData.get("intent") || "");
 
   if (intent !== "create_sample_product") {
-    return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
+    return { ok: false, error: "Unknown intent" };
   }
 
   const color = ["Red", "Orange", "Yellow", "Green"][Math.floor(Math.random() * 4)];
@@ -56,20 +56,22 @@ export const action = async ({ request }) => {
   const resp = await admin.graphql(mutation, {
     variables: { input: { title } },
   });
+
   const json = await resp.json();
   const payload = json?.data?.productCreate;
 
   const userErrors = payload?.userErrors || [];
   if (userErrors.length) {
-    return jsonResponse({ ok: false, userErrors }, 200);
+    return { ok: false, userErrors };
   }
 
-  return jsonResponse({ ok: true, product: payload?.product }, 200);
+  return { ok: true, product: payload?.product };
 };
 
 export default function AppHome() {
   const location = useLocation();
   const withSearch = (path) => `${path}${location.search || ""}`;
+
   const fetcher = useFetcher();
   const data = fetcher.data;
 
@@ -98,15 +100,17 @@ export default function AppHome() {
                 <Button
                   variant="primary"
                   loading={fetcher.state !== "idle"}
-                  onClick={() => fetcher.submit({ intent: "create_sample_product" }, { method: "post" })}
+                  onClick={() =>
+                    fetcher.submit(
+                      { intent: "create_sample_product" },
+                      { method: "post" }
+                    )
+                  }
                 >
                   Create a sample product
                 </Button>
 
-                <Button
-                  url="https://shopify.dev/docs/api/admin-graphql"
-                  external
-                >
+                <Button url="https://shopify.dev/docs/api/admin-graphql" external>
                   Admin GraphQL docs
                 </Button>
               </InlineStack>
@@ -127,6 +131,12 @@ export default function AppHome() {
                     <Banner title="Done" tone="success">
                       <Text as="p" variant="bodyMd">
                         Sample product created successfully.
+                      </Text>
+                    </Banner>
+                  ) : data.error ? (
+                    <Banner title="Error" tone="critical">
+                      <Text as="p" variant="bodyMd">
+                        {data.error}
                       </Text>
                     </Banner>
                   ) : null}
@@ -150,7 +160,9 @@ export default function AppHome() {
               )}
 
               <Text as="p" variant="bodySm" tone="subdued">
-                Tip: Use the <RouterLink to={withSearch("/app/seo-tools")}>SEO Tools</RouterLink> page to generate SEO titles/descriptions with Polaris UI.
+                Tip: Use the{" "}
+                <RouterLink to={withSearch("/app/seo-tools")}>SEO Tools</RouterLink>{" "}
+                page to generate SEO titles/descriptions with Polaris UI.
               </Text>
             </BlockStack>
           </Card>
@@ -160,10 +172,7 @@ export default function AppHome() {
   );
 }
 
-export const headers = (headersArgs) => {
-  return boundary.headers(headersArgs);
-};
-
+export const headers = (headersArgs) => boundary.headers(headersArgs);
 
 /** ---------------- route ErrorBoundary ---------------- */
 export function ErrorBoundary() {

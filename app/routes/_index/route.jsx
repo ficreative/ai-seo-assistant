@@ -1,18 +1,26 @@
-import { redirect, Form, useLoaderData } from "react-router";
+// app/routes/_index/route.jsx
 import { useState } from "react";
-import { Page, Layout, Card, Text, TextField, Button, BlockStack } from "@shopify/polaris";
+import { redirect, Form, useLoaderData } from "react-router";
+import {
+  Page,
+  Layout,
+  Card,
+  Text,
+  TextField,
+  Button,
+  BlockStack,
+} from "@shopify/polaris";
 import { login } from "../../shopify.server";
 
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
 
+  // Eğer shop paramı varsa direkt embedded app'e yönlendir
   if (url.searchParams.get("shop")) {
-    // Daha doğru akış: shop varsa direkt auth başlat
-    throw redirect(`/auth?${url.searchParams.toString()}`);
-    // Alternatif: sadece shop'u taşı
-    // throw redirect(`/auth?shop=${encodeURIComponent(url.searchParams.get("shop"))}`);
+    throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
+  // login fonksiyonu tanımlıysa formu göster
   return { showForm: Boolean(login) };
 };
 
@@ -36,12 +44,12 @@ export default function Index() {
                     <TextField
                       label="Shop domain"
                       name="shop"
-                      autoComplete="off"
-                      placeholder="my-shop-domain.myshopify.com"
                       value={shop}
                       onChange={setShop}
+                      autoComplete="off"
+                      placeholder="my-shop-domain.myshopify.com"
                     />
-                    <Button submit variant="primary" disabled={!shop.trim()}>
+                    <Button submit variant="primary">
                       Log in
                     </Button>
                   </BlockStack>
