@@ -29,7 +29,7 @@ function jsonResponse(data, status = 200) {
 
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
-  return jsonResponse({ ok: true });
+  return { ok: true }; // JSON Response DEĞİL, normal loader data
 };
 
 export const action = async ({ request }) => {
