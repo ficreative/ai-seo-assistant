@@ -1,4 +1,5 @@
 import { redirect, Form, useLoaderData } from "react-router";
+import { useState } from "react";
 import { Page, Layout, Card, Text, TextField, Button, BlockStack } from "@shopify/polaris";
 import { login } from "../../shopify.server";
 
@@ -6,7 +7,10 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
 
   if (url.searchParams.get("shop")) {
-    throw redirect(`/app?${url.searchParams.toString()}`);
+    // Daha doğru akış: shop varsa direkt auth başlat
+    throw redirect(`/auth?${url.searchParams.toString()}`);
+    // Alternatif: sadece shop'u taşı
+    // throw redirect(`/auth?shop=${encodeURIComponent(url.searchParams.get("shop"))}`);
   }
 
   return { showForm: Boolean(login) };
@@ -14,6 +18,7 @@ export const loader = async ({ request }) => {
 
 export default function Index() {
   const { showForm } = useLoaderData();
+  const [shop, setShop] = useState("");
 
   return (
     <Page title="AI SEO Assistant">
@@ -33,8 +38,10 @@ export default function Index() {
                       name="shop"
                       autoComplete="off"
                       placeholder="my-shop-domain.myshopify.com"
+                      value={shop}
+                      onChange={setShop}
                     />
-                    <Button submit variant="primary">
+                    <Button submit variant="primary" disabled={!shop.trim()}>
                       Log in
                     </Button>
                   </BlockStack>
