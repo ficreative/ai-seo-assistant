@@ -15,11 +15,9 @@ import {
   Divider,
 } from "@shopify/polaris";
 
-import { authenticate } from "../shopify.server.js";
 import { BILLING_PLANS } from "../billing.plans.js";
-import { getBillingContext } from "../billing.gating.server.js";
-import { activatePro, cancelPro } from "../billing.mock.server.js";
 
+/** Client-safe JSON response helper */
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -27,101 +25,68 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-function adminReturnUrl(shop) {
-  const handle = process.env.SHOPIFY_APP_HANDLE;
-  if (!handle) {
-    // handle yoksa bile en azından Admin home’a dönsün
-    return `https://${shop}/admin`;
-  }
-  return `https://${shop}/admin/apps/${handle}`;
-}
-
-// Dev store ise test charge kullan (reviewer test store ile denerken şart)
-function isTestShop(shop) {
-  // Basit: dev mağazalarda genelde *.myshopify.com ve ödeme aktif değil.
-  // İstersen burada daha sağlam “isDevelopmentStore” kontrolü ekleriz.
-  return process.env.SHOPIFY_BILLING_TEST === "true";
-}
-
 export const loader = async ({ request }) => {
-  const { session, billing } = await authenticate.admin(request);
+  // ✅ Server-only imports MUST be inside loader/action
+  const { authenticate } = await import("../shopify.server.js");
+  const { getBillingContext } = await import("../billing.gating.server.js");
 
-  // ✅ Shopify’dan gerçek durum okunuyor
-  const check = await billing.check({
-    plans: [BILLING_PLANS.PRO_MONTHLY, BILLING_PLANS.PRO_ANNUAL],
-    isTest: isTestShop(session.shop),
-  });
-
-  const active = check?.hasActivePayment ?? false;
-  const activeSubs = check?.appSubscriptions ?? [];
-  const activePlan =
-    activeSubs?.[0]?.name || (active ? "PRO" : "FREE");
+  const { session } = await authenticate.admin(request);
+  const ctx = await getBillingContext(session.shop);
 
   return jsonResponse({
     shop: session.shop,
     billing: {
-      isPro: active,
-      activePlan,
-      subscriptions: activeSubs.map((s) => ({
-        id: s.id,
-        name: s.name,
-        status: s.status,
-      })),
+      planKey: ctx.planKey,
+      isPro: ctx.isPro,
+      mode: ctx.mode,
+      free: ctx.free,
     },
   });
 };
 
 export const action = async ({ request }) => {
-  const { session, billing } = await authenticate.admin(request);
+  // ✅ Server-only imports MUST be inside loader/action
+  const { authenticate } = await import("../shopify.server.js");
+
+  const { session } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
-  const test = isTestShop(session.shop);
-  const returnUrl = adminReturnUrl(session.shop);
-
   try {
-    if (intent === "subscribe_monthly") {
-      // Eğer yoksa onay iste ve Shopify confirm ekranına yönlendirir (throws/redirect)
-      await billing.request({
-        plan: BILLING_PLANS.PRO_MONTHLY,
-        isTest: test,
-        returnUrl,
-      });
-      return jsonResponse({ ok: true }); // normalde buraya düşmez
+    // NOTE:
+    // Şimdilik mevcut sistemin hangi “real billing” fonksiyonlarını sağladığına göre
+    // burada çağıracağız. Eğer hâlâ mock fonksiyonlar kullanıyorsan, onları da
+    // dynamic import ile burada çağırmalısın.
+    //
+    // Aşağıdaki satırlar sende varsa çalışır:
+    // - billing.real.server.js gibi bir dosyada request/cancel/check fonksiyonları
+    // - veya shopify.server.js içinde export edilen helper’lar
+    //
+    // Şimdilik güvenli davranıp “mock disabled” uyarısını server’dan dönelim.
+
+    if (intent === "subscribe_monthly" || intent === "subscribe_annual" || intent === "cancel") {
+      // Burayı senin “A seçeneği (real billing)” implementasyonuna bağlayacağız.
+      // Şu an prod’da mock kapalı olduğu için net mesaj dönüyorum:
+      return jsonResponse({
+        ok: false,
+        error: "Mock billing is disabled. Configure real Shopify Billing for production.",
+      }, 400);
     }
 
-    if (intent === "subscribe_annual") {
-      await billing.request({
-        plan: BILLING_PLANS.PRO_ANNUAL,
-        isTest: test,
-        returnUrl,
-      });
+    if (intent === "reset_usage") {
+      if (process.env.NODE_ENV === "production") {
+        return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
+      }
+      const { resetFreeUsage } = await import("../billing.gating.server.js");
+      await resetFreeUsage({ shop: session.shop });
       return jsonResponse({ ok: true });
     }
-
-    if (intent === "cancel") {
-      // Aktif subscription id’sini Shopify’dan al
-      const check = await billing.check({
-        plans: [BILLING_PLANS.PRO_MONTHLY, BILLING_PLANS.PRO_ANNUAL],
-        isTest: test,
-      });
-      const subId = check?.appSubscriptions?.[0]?.id;
-      if (!subId) return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
-
-      await billing.cancel({
-        subscriptionId: subId,
-        isTest: test,
-        prorate: false,
-      });
-
-      return jsonResponse({ ok: true });
-    }
-
-    return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return jsonResponse({ ok: false, error: msg }, 500);
   }
+
+  return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
 };
 
 export default function Billing() {
@@ -130,46 +95,35 @@ export default function Billing() {
 
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
-  // Shopify approve ekranından dönünce sayfayı tazele
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.ok) {
       window.location.reload();
     }
   }, [fetcher.state, fetcher.data]);
 
-  const isPro = Boolean(billing?.isPro);
-  const activePlan = billing?.activePlan || "FREE";
+  const free =
+    billing?.free || {
+      used: 0,
+      remaining: BILLING_PLANS.FREE.monthlyProductLimit,
+      limit: BILLING_PLANS.FREE.monthlyProductLimit,
+      month: "",
+    };
 
-  const freeFeatures = useMemo(
-    () => [
-      "Up to 10 products / month",
-      "Generate product meta title & description",
-      "Generation history",
-      "Basic support",
-    ],
-    []
-  );
+  const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
+  const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";
+  const proActive = billing?.isPro;
 
-  const proFeatures = useMemo(
-    () => [
-      "Unlimited product generations",
-      "Image ALT text generation",
-      "Blog article SEO generation",
-      "Bulk generate + bulk apply/publish",
-      "Advanced filters & interactive tables",
-      "Priority queue processing",
-      "Retry failed items",
-      "Detailed error insights",
-    ],
-    []
-  );
+  const freeFeatures = useMemo(() => BILLING_PLANS.FREE.features, []);
+  const proFeatures = useMemo(() => BILLING_PLANS.PRO.features, []);
 
   return (
     <Page title="Billing">
       <BlockStack gap="400">
         {error ? (
           <Banner tone="critical" title="Billing error">
-            <Text as="p" variant="bodyMd">{error}</Text>
+            <Text as="p" variant="bodyMd">
+              {error}
+            </Text>
           </Banner>
         ) : null}
 
@@ -179,28 +133,53 @@ export default function Billing() {
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
                   <BlockStack gap="100">
-                    <Text variant="headingMd" as="h2">Free Plan</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">For trying the app</Text>
+                    <Text variant="headingMd" as="h2">
+                      {BILLING_PLANS.FREE.title}
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      {BILLING_PLANS.FREE.subtitle}
+                    </Text>
                   </BlockStack>
-                  <Badge tone={!isPro ? "success" : undefined}>
-                    {!isPro ? "Current" : "Available"}
+                  <Badge tone={!proActive ? "success" : undefined}>
+                    {!proActive ? "Current" : "Available"}
                   </Badge>
                 </InlineStack>
 
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="p" variant="bodyMd"><b>Monthly limit:</b> 10 products</Text>
+                  <Text as="p" variant="bodyMd">
+                    <b>Monthly limit:</b> {BILLING_PLANS.FREE.monthlyProductLimit} products
+                  </Text>
+                  <Text as="p" variant="bodyMd">
+                    <b>Usage:</b> {usageText}
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {monthLabel}
+                  </Text>
                 </BlockStack>
 
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="h3" variant="headingSm">Features</Text>
+                  <Text as="h3" variant="headingSm">
+                    Features
+                  </Text>
                   <List>
-                    {freeFeatures.map((f) => <List.Item key={f}>{f}</List.Item>)}
+                    {freeFeatures.map((f) => (
+                      <List.Item key={f}>{f}</List.Item>
+                    ))}
                   </List>
                 </BlockStack>
+
+                <Divider />
+
+                <fetcher.Form method="post">
+                  <input type="hidden" name="intent" value="reset_usage" />
+                  <Button tone="critical" variant="secondary">
+                    Reset usage (dev)
+                  </Button>
+                </fetcher.Form>
               </BlockStack>
             </Card>
           </Layout.Section>
@@ -210,51 +189,65 @@ export default function Billing() {
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
                   <BlockStack gap="100">
-                    <Text variant="headingMd" as="h2">Pro Plan</Text>
+                    <Text variant="headingMd" as="h2">
+                      {BILLING_PLANS.PRO.title}
+                    </Text>
                     <Text as="p" variant="bodySm" tone="subdued">
-                      Unlimited + advanced tools
+                      {BILLING_PLANS.PRO.subtitle}
                     </Text>
                   </BlockStack>
-
-                  <Badge tone={isPro ? "success" : undefined}>
-                    {isPro ? `Active (${activePlan})` : "Upgrade"}
+                  <Badge tone={proActive ? "success" : undefined}>
+                    {proActive ? "Active" : "Upgrade"}
                   </Badge>
                 </InlineStack>
 
                 <Divider />
 
                 <BlockStack gap="200">
-                  <Text as="p" variant="bodyMd"><b>Monthly:</b> $19.90 / month</Text>
-                  <Text as="p" variant="bodyMd"><b>Annual:</b> $200 / year</Text>
+                  <Text as="p" variant="bodyMd">
+                    <b>Monthly:</b> {BILLING_PLANS.PRO.priceMonthlyText}
+                  </Text>
+                  <Text as="p" variant="bodyMd">
+                    <b>Annual:</b> {BILLING_PLANS.PRO.priceAnnualText}
+                  </Text>
                 </BlockStack>
 
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="h3" variant="headingSm">Features</Text>
+                  <Text as="h3" variant="headingSm">
+                    Features
+                  </Text>
                   <List>
-                    {proFeatures.map((f) => <List.Item key={f}>{f}</List.Item>)}
+                    {proFeatures.map((f) => (
+                      <List.Item key={f}>{f}</List.Item>
+                    ))}
                   </List>
                 </BlockStack>
 
                 <Divider />
 
-                {!isPro ? (
+                {!proActive ? (
                   <InlineStack gap="200">
                     <fetcher.Form method="post">
                       <input type="hidden" name="intent" value="subscribe_monthly" />
-                      <Button submit variant="primary">Start Monthly</Button>
+                      <Button submit variant="primary">
+                        Start Monthly
+                      </Button>
                     </fetcher.Form>
-
                     <fetcher.Form method="post">
                       <input type="hidden" name="intent" value="subscribe_annual" />
-                      <Button submit variant="secondary">Start Annual</Button>
+                      <Button submit variant="secondary">
+                        Start Annual
+                      </Button>
                     </fetcher.Form>
                   </InlineStack>
                 ) : (
                   <fetcher.Form method="post">
                     <input type="hidden" name="intent" value="cancel" />
-                    <Button submit tone="critical">Cancel subscription</Button>
+                    <Button submit tone="critical">
+                      Cancel subscription
+                    </Button>
                   </fetcher.Form>
                 )}
               </BlockStack>
