@@ -15,8 +15,10 @@ import {
   Divider,
 } from "@shopify/polaris";
 
-import { authenticate } from "../shopify.server";
-import { BILLING_PLANS } from "../shopify.server"; // yukarıda export ettiğimiz
+import { authenticate } from "../shopify.server.js";
+import { BILLING_PLANS } from "../billing.plans.js";
+import { getBillingContext } from "../billing.gating.server.js";
+import { activatePro, cancelPro } from "../billing.mock.server.js";
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {

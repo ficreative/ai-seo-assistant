@@ -1,7 +1,7 @@
 // app/billing.gating.server.js
 import { BILLING_PLANS } from "./billing.plans.js";
+import { getPlanForShop } from "./billing.mock.server.js";
 import { getFreeUsageMonthly, reserveFreeUsageMonthly, resetFreeUsageMonthly } from "./billing.usage.server.js";
-import { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } from "./shopify.server.js";
 
 function isTestBilling() {
   // Review / dev için true kullanmak istersen env ile kontrol et
