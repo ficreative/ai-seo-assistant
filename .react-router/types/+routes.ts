@@ -14,6 +14,12 @@ type Pages = {
   "/": {
     params: {};
   };
+  "/auth/login": {
+    params: {};
+  };
+  "/webhooks": {
+    params: {};
+  };
   "/webhooks/customers/data_request": {
     params: {};
   };
@@ -27,9 +33,6 @@ type Pages = {
     params: {};
   };
   "/webhooks/shop/redact": {
-    params: {};
-  };
-  "/auth/login": {
     params: {};
   };
   "/auth/*": {
@@ -82,7 +85,15 @@ type Pages = {
 type RouteFiles = {
   "root.jsx": {
     id: "root";
-    page: "/" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/webhooks/shop/redact" | "/auth/login" | "/auth/*" | "/app" | "/app/debug-report/:jobId" | "/app/generation-history" | "/app/generation-history/:jobId" | "/app/additional" | "/app/onboarding" | "/app/seo-tools" | "/app/settings" | "/app/billing" | "/app/privacy" | "/app/support" | "/app/terms";
+    page: "/" | "/auth/login" | "/webhooks" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/webhooks/shop/redact" | "/auth/*" | "/app" | "/app/debug-report/:jobId" | "/app/generation-history" | "/app/generation-history/:jobId" | "/app/additional" | "/app/onboarding" | "/app/seo-tools" | "/app/settings" | "/app/billing" | "/app/privacy" | "/app/support" | "/app/terms";
+  };
+  "routes/auth.login/route.jsx": {
+    id: "routes/auth.login";
+    page: "/auth/login";
+  };
+  "routes/webhooks.jsx": {
+    id: "routes/webhooks";
+    page: "/webhooks" | "/webhooks/customers/data_request" | "/webhooks/app/scopes_update" | "/webhooks/customers/redact" | "/webhooks/app/uninstalled" | "/webhooks/shop/redact";
   };
   "routes/webhooks.customers.data_request.jsx": {
     id: "routes/webhooks.customers.data_request";
@@ -103,10 +114,6 @@ type RouteFiles = {
   "routes/webhooks.shop.redact.jsx": {
     id: "routes/webhooks.shop.redact";
     page: "/webhooks/shop/redact";
-  };
-  "routes/auth.login/route.jsx": {
-    id: "routes/auth.login";
-    page: "/auth/login";
   };
   "routes/_index/route.jsx": {
     id: "routes/_index";
@@ -172,12 +179,13 @@ type RouteFiles = {
 
 type RouteModules = {
   "root": typeof import("./app/root.jsx");
+  "routes/auth.login": typeof import("./app/routes/auth.login/route.jsx");
+  "routes/webhooks": typeof import("./app/routes/webhooks.jsx");
   "routes/webhooks.customers.data_request": typeof import("./app/routes/webhooks.customers.data_request.jsx");
   "routes/webhooks.app.scopes_update": typeof import("./app/routes/webhooks.app.scopes_update.jsx");
   "routes/webhooks.customers.redact": typeof import("./app/routes/webhooks.customers.redact.jsx");
   "routes/webhooks.app.uninstalled": typeof import("./app/routes/webhooks.app.uninstalled.jsx");
   "routes/webhooks.shop.redact": typeof import("./app/routes/webhooks.shop.redact.jsx");
-  "routes/auth.login": typeof import("./app/routes/auth.login/route.jsx");
   "routes/_index": typeof import("./app/routes/_index/route.jsx");
   "routes/auth.$": typeof import("./app/routes/auth.$.jsx");
   "routes/app": typeof import("./app/routes/app.jsx");

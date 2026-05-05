@@ -1,10 +1,18 @@
 import { useState } from "react";
-import { Form, useActionData, useLoaderData } from "react-router";
+import { redirect, Form, useLoaderData, useActionData } from "react-router";
 import { Page, Layout, Card, TextField, Button, BlockStack, Banner, Text } from "@shopify/polaris";
 import { login } from "../../shopify.server";
-import { loginErrorMessage } from "./error.server";
+import { loginErrorMessage } from "../auth.login/error.server"; // path gerekirse düzelt
 
 export const loader = async ({ request }) => {
+  const url = new URL(request.url);
+
+  // Root'a shop paramı ile gelinirse direkt /auth (OAuth başlangıcı)
+  if (url.searchParams.get("shop")) {
+    throw redirect(`/auth?${url.searchParams.toString()}`);
+  }
+
+  // loginErrorMessage, login() içinden gelen hatayı düzgün basmak için
   const errors = loginErrorMessage(await login(request));
   return { errors };
 };
@@ -14,7 +22,7 @@ export const action = async ({ request }) => {
   return { errors };
 };
 
-export default function Login() {
+export default function Index() {
   const { errors } = useLoaderData();
   const actionData = useActionData();
   const [shop, setShop] = useState("");
@@ -23,7 +31,7 @@ export default function Login() {
   const hasError = Boolean(mergedErrors?.shop);
 
   return (
-    <Page title="Log in">
+    <Page title="AI SEO Assistant">
       <Layout>
         <Layout.Section>
           <Card>
@@ -36,6 +44,10 @@ export default function Login() {
                 </Banner>
               )}
 
+              <Text as="p" variant="bodyMd">
+                Enter your <strong>.myshopify.com</strong> domain to log in.
+              </Text>
+
               <Form method="post">
                 <BlockStack gap="300">
                   <TextField
@@ -44,10 +56,11 @@ export default function Login() {
                     onChange={setShop}
                     name="shop"
                     autoComplete="on"
+                    placeholder="my-shop-domain.myshopify.com"
                     helpText="example.myshopify.com"
                     error={mergedErrors.shop}
                   />
-                  <Button submit variant="primary">
+                  <Button submit variant="primary" disabled={!shop.trim()}>
                     Log in
                   </Button>
                 </BlockStack>

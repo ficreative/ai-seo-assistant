@@ -14,10 +14,9 @@ import {
   Divider,
 } from "@shopify/polaris";
 
-import { authenticate } from "../shopify.server";
+import { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } from "../shopify.server";
 import { BILLING_PLANS } from "../billing.plans.js";
-import { getBillingContext } from "../billing.gating.server.js";
-import { activatePro, cancelPro } from "../billing.mock.server.js";
+import { getBillingContext, resetFreeUsage } from "../billing.gating.server.js";
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -26,45 +25,80 @@ function jsonResponse(data, status = 200) {
   });
 }
 
+function isTestBilling() {
+  return process.env.SHOPIFY_BILLING_TEST === "true";
+}
+
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
-  const ctx = await getBillingContext(session.shop);
+  await authenticate.admin(request);
+  const ctx = await getBillingContext(request);
 
   return jsonResponse({
-    shop: session.shop,
+    shop: ctx.shop,
     billing: {
       planKey: ctx.planKey,
       isPro: ctx.isPro,
       mode: ctx.mode,
+      subscriptionId: ctx.subscriptionId,
       free: ctx.free,
     },
   });
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { billing, session } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
+  // returnUrl: host/embedded query’lerini koruyalım ki embedded içinde düzgün dönsün
+  const url = new URL(request.url);
+  const returnUrl = new URL(`/app/billing${url.search}`, process.env.SHOPIFY_APP_URL).toString();
+
   try {
     if (intent === "subscribe_monthly") {
-      await activatePro(session.shop, "monthly");
-      return jsonResponse({ ok: true });
+      // ❗ billing.request redirect yapar (Response fırlatır)
+      await billing.request({
+        plan: MONTHLY_PLAN,
+        isTest: isTestBilling(),
+        returnUrl,
+      });
     }
+
     if (intent === "subscribe_annual") {
-      await activatePro(session.shop, "annual");
-      return jsonResponse({ ok: true });
+      await billing.request({
+        plan: ANNUAL_PLAN,
+        isTest: isTestBilling(),
+        returnUrl,
+      });
     }
+
     if (intent === "cancel") {
-      await cancelPro(session.shop);
+      // Aktif subscription id’yi bul
+      const check = await billing.check({
+        plans: [MONTHLY_PLAN, ANNUAL_PLAN],
+        isTest: isTestBilling(),
+      });
+
+      const activeSub = Array.isArray(check?.appSubscriptions)
+        ? check.appSubscriptions.find((s) => s?.status === "ACTIVE")
+        : null;
+
+      if (!activeSub?.id) {
+        return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
+      }
+
+      await billing.cancel({
+        subscriptionId: activeSub.id,
+        prorate: true,
+      });
+
       return jsonResponse({ ok: true });
     }
+
     if (intent === "reset_usage") {
-      // dev-only helper (NEVER allow in production)
       if (process.env.NODE_ENV === "production") {
         return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
       }
-      const { resetFreeUsage } = await import("../billing.gating.server.js");
       await resetFreeUsage({ shop: session.shop });
       return jsonResponse({ ok: true });
     }
@@ -82,16 +116,19 @@ export default function Billing() {
 
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
-  // Refresh after actions
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.ok) {
-      // Force a reload by re-submitting nothing is awkward; easiest is window reload in embedded.
-      // Keeps it simple and reliable.
       window.location.reload();
     }
   }, [fetcher.state, fetcher.data]);
 
-  const free = billing?.free || { used: 0, remaining: BILLING_PLANS.FREE.monthlyProductLimit, limit: BILLING_PLANS.FREE.monthlyProductLimit, month: "" };
+  const free = billing?.free || {
+    used: 0,
+    remaining: BILLING_PLANS.FREE.monthlyProductLimit,
+    limit: BILLING_PLANS.FREE.monthlyProductLimit,
+    month: "",
+  };
+
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
   const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";
 
@@ -134,9 +171,7 @@ export default function Billing() {
                 <BlockStack gap="150">
                   <Text as="h3" variant="headingSm">Features</Text>
                   <List>
-                    {freeFeatures.map((f) => (
-                      <List.Item key={f}>{f}</List.Item>
-                    ))}
+                    {freeFeatures.map((f) => <List.Item key={f}>{f}</List.Item>)}
                   </List>
                 </BlockStack>
 
@@ -173,9 +208,7 @@ export default function Billing() {
                 <BlockStack gap="150">
                   <Text as="h3" variant="headingSm">Features</Text>
                   <List>
-                    {proFeatures.map((f) => (
-                      <List.Item key={f}>{f}</List.Item>
-                    ))}
+                    {proFeatures.map((f) => <List.Item key={f}>{f}</List.Item>)}
                   </List>
                 </BlockStack>
 
