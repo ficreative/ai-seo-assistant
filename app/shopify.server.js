@@ -2,44 +2,45 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
-  shopifyApp,
   DeliveryMethod,
+  shopifyApp,
+  BillingInterval,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server.js";
 
-/**
- * Billing plan keys (must be stable strings)
- * These names appear in Shopify subscription objects.
- */
-export const MONTHLY_PLAN = "pro-monthly";
-export const ANNUAL_PLAN = "pro-annual";
+export const MONTHLY_PLAN = "Pro Monthly";
+export const ANNUAL_PLAN = "Pro Annual";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
   apiVersion: ApiVersion.October25,
-  scopes: process.env.SCOPES?.split(","),
+  scopes: (process.env.SCOPES || "").split(",").map((s) => s.trim()).filter(Boolean),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  /**
-   * ✅ REAL BILLING CONFIG
-   * Make sure amounts/currency match your pricing.
-   * Test mode is controlled by SHOPIFY_BILLING_TEST env in request/check calls.
-   */
+  // ✅ REAL BILLING CONFIG (Shopify Billing API)
   billing: {
     [MONTHLY_PLAN]: {
-      amount: 19.9,
-      currencyCode: "USD",
-      interval: "EVERY_30_DAYS",
+      lineItems: [
+        {
+          amount: 19.9,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
+      ],
     },
     [ANNUAL_PLAN]: {
-      amount: 200,
-      currencyCode: "USD",
-      interval: "ANNUAL",
+      lineItems: [
+        {
+          amount: 200,
+          currencyCode: "USD",
+          interval: BillingInterval.Annual,
+        },
+      ],
     },
   },
 
@@ -68,8 +69,8 @@ const shopify = shopifyApp({
 });
 
 export default shopify;
-export const apiVersion = ApiVersion.October25;
 
+export const apiVersion = ApiVersion.October25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
