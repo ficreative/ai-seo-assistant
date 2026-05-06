@@ -15,7 +15,9 @@ import {
   Divider,
 } from "@shopify/polaris";
 
+import { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } from "../shopify.server.js";
 import { BILLING_PLANS } from "../billing.plans.js";
+import { getBillingContext } from "../billing.gating.server.js";
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -24,11 +26,12 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-export const loader = async ({ request }) => {
-  const { authenticate } = await import("../shopify.server.js");
-  const { session, admin } = await authenticate.admin(request);
+function isTestBilling() {
+  return process.env.SHOPIFY_BILLING_TEST === "true";
+}
 
-  const { getBillingContext } = await import("../billing.gating.server.js");
+export const loader = async ({ request }) => {
+  const { session, admin } = await authenticate.admin(request);
   const ctx = await getBillingContext({ shop: session.shop, admin });
 
   return jsonResponse({
@@ -43,13 +46,54 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { authenticate } = await import("../shopify.server.js");
   const { session } = await authenticate.admin(request);
-
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
   try {
+    // ✅ Start Monthly
+    if (intent === "subscribe_monthly") {
+      return await authenticate.admin.billing.request({
+        session,
+        plan: MONTHLY_PLAN,
+        isTest: isTestBilling(),
+        returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing`,
+      });
+    }
+
+    // ✅ Start Annual
+    if (intent === "subscribe_annual") {
+      return await authenticate.admin.billing.request({
+        session,
+        plan: ANNUAL_PLAN,
+        isTest: isTestBilling(),
+        returnUrl: `${process.env.SHOPIFY_APP_URL}/app/billing`,
+      });
+    }
+
+    // ✅ Cancel active subscription
+    if (intent === "cancel") {
+      const check = await authenticate.admin.billing.check({
+        shop: session.shop,
+        plans: [MONTHLY_PLAN, ANNUAL_PLAN],
+        isTest: isTestBilling(),
+      });
+
+      const subId = check?.appSubscriptions?.[0]?.id;
+      if (!subId) {
+        return jsonResponse({ ok: false, error: "No active subscription found" }, 400);
+      }
+
+      await authenticate.admin.billing.cancel({
+        session,
+        subscriptionId: subId,
+        prorate: true,
+      });
+
+      return jsonResponse({ ok: true });
+    }
+
+    // dev-only helper
     if (intent === "reset_usage") {
       if (process.env.NODE_ENV === "production") {
         return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
@@ -57,14 +101,6 @@ export const action = async ({ request }) => {
       const { resetFreeUsage } = await import("../billing.gating.server.js");
       await resetFreeUsage({ shop: session.shop });
       return jsonResponse({ ok: true });
-    }
-
-    // ✅ Bir sonraki adımda burayı Shopify Billing API'ye bağlayacağız
-    if (intent === "subscribe_monthly" || intent === "subscribe_annual" || intent === "cancel") {
-      return jsonResponse(
-        { ok: false, error: "Billing is not configured yet. (Real billing pending)" },
-        400
-      );
     }
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
@@ -80,19 +116,19 @@ export default function Billing() {
 
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
+  // refresh after non-redirect actions (cancel/reset)
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.ok) {
       window.location.reload();
     }
   }, [fetcher.state, fetcher.data]);
 
-  const free =
-    billing?.free || {
-      used: 0,
-      remaining: BILLING_PLANS.FREE.monthlyProductLimit,
-      limit: BILLING_PLANS.FREE.monthlyProductLimit,
-      month: "",
-    };
+  const free = billing?.free || {
+    used: 0,
+    remaining: BILLING_PLANS.FREE.monthlyProductLimit,
+    limit: BILLING_PLANS.FREE.monthlyProductLimit,
+    month: "",
+  };
 
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
   const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";

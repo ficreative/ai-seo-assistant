@@ -4,14 +4,16 @@ import {
   AppDistribution,
   shopifyApp,
   DeliveryMethod,
-  BillingInterval,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server.js";
 
-// ✅ Plan isimleri (kod içinde referans edeceğiz)
-export const MONTHLY_PLAN = "pro_monthly";
-export const ANNUAL_PLAN = "pro_annual";
+/**
+ * Billing plan keys (must be stable strings)
+ * These names appear in Shopify subscription objects.
+ */
+export const MONTHLY_PLAN = "pro-monthly";
+export const ANNUAL_PLAN = "pro-annual";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -23,17 +25,21 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  // ✅ Burası kritik: Billing config yoksa billing.check undefined olur
+  /**
+   * ✅ REAL BILLING CONFIG
+   * Make sure amounts/currency match your pricing.
+   * Test mode is controlled by SHOPIFY_BILLING_TEST env in request/check calls.
+   */
   billing: {
     [MONTHLY_PLAN]: {
       amount: 19.9,
       currencyCode: "USD",
-      interval: BillingInterval.Every30Days,
+      interval: "EVERY_30_DAYS",
     },
     [ANNUAL_PLAN]: {
       amount: 200,
       currencyCode: "USD",
-      interval: BillingInterval.Annual,
+      interval: "ANNUAL",
     },
   },
 
@@ -52,7 +58,9 @@ const shopify = shopifyApp({
     },
   },
 
-  future: { expiringOfflineAccessTokens: true },
+  future: {
+    expiringOfflineAccessTokens: true,
+  },
 
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
@@ -61,6 +69,7 @@ const shopify = shopifyApp({
 
 export default shopify;
 export const apiVersion = ApiVersion.October25;
+
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;

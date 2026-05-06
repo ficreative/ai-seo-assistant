@@ -1,39 +1,72 @@
 // app/billing.gating.server.js
+// Central gating helpers used by routes.
+// SERVER-ONLY MODULE.
+
 import { BILLING_PLANS } from "./billing.plans.js";
-import { getFreeUsageMonthly, reserveFreeUsageMonthly, resetFreeUsageMonthly } from "./billing.usage.server.js";
+import {
+  getFreeUsageMonthly,
+  reserveFreeUsageMonthly,
+  resetFreeUsageMonthly,
+} from "./billing.usage.server.js";
+import { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } from "./shopify.server.js";
 
-/**
- * admin: authenticate.admin(request) içinden gelen admin client
- * shop: session.shop
- */
+function isTestBilling() {
+  return process.env.SHOPIFY_BILLING_TEST === "true";
+}
+
 export async function getBillingContext({ shop, admin }) {
-  // Pro plan kontrolü (Shopify Billing API / Managed Pricing)
-  // Bu kısım sende "A seçeneği" ile gerçek billing'e bağlanacak.
-  // Şimdilik güvenli default: pro değil.
-  let isPro = false;
-  let planKey = "free";
-  let mode = "real";
+  // ✅ REAL billing check (Shopify)
+  const check = await authenticate.admin.billing.check({
+    shop,
+    plans: [MONTHLY_PLAN, ANNUAL_PLAN],
+    isTest: isTestBilling(),
+  });
 
-  // Eğer real billing check fonksiyonunu buraya koyduysan, admin ile çağır:
-  // const result = await checkProPlan({ shop, admin });
-  // isPro = result.isPro; planKey = result.planKey;
+  const isPro = Boolean(check?.hasActivePayment);
+  const activePlanName = check?.appSubscriptions?.[0]?.name || null;
 
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
   const usage = await getFreeUsageMonthly(shop, freeLimit);
 
   return {
     isPro,
-    planKey,
-    mode,
-    free: { monthlyLimit: freeLimit, ...usage },
+    planKey: isPro ? activePlanName || MONTHLY_PLAN : "free",
+    mode: isTestBilling() ? "test" : "live",
+    free: {
+      monthlyLimit: freeLimit,
+      ...usage,
+    },
     plans: BILLING_PLANS,
   };
 }
 
 export async function reserveIfFreePlan({ shop, productCount }) {
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
+
+  const check = await authenticate.admin.billing.check({
+    shop,
+    plans: [MONTHLY_PLAN, ANNUAL_PLAN],
+    isTest: isTestBilling(),
+  });
+
+  if (check?.hasActivePayment) {
+    return {
+      ok: true,
+      planKey: check?.appSubscriptions?.[0]?.name || MONTHLY_PLAN,
+      mode: isTestBilling() ? "test" : "live",
+      free: await getFreeUsageMonthly(shop, freeLimit),
+    };
+  }
+
   const reservation = await reserveFreeUsageMonthly(shop, productCount, freeLimit);
-  return { ok: reservation.ok, code: reservation.code, free: reservation };
+
+  return {
+    ok: reservation.ok,
+    code: reservation.code,
+    planKey: "free",
+    mode: isTestBilling() ? "test" : "live",
+    free: reservation,
+  };
 }
 
 export async function resetFreeUsage({ shop }) {
