@@ -10,18 +10,21 @@ import {
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
 import { NavMenu } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
 
 import { Page, Banner, Text, BlockStack, Box, Button, InlineStack } from "@shopify/polaris";
 
+import { authenticate } from "../shopify.server";
+import { getBillingContext } from "../billing.gating.server.js";
+
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  // ✅ authenticate.admin sadece 1 kere çağrılıyor
+  const { session, admin } = await authenticate.admin(request);
 
   const url = new URL(request.url);
   const host = url.searchParams.get("host") || "";
   const embedded = url.searchParams.get("embedded") || "";
 
-  const { session, admin } = await authenticate.admin(request);
+  // ✅ billing context (server-side)
   const billing = await getBillingContext({ shop: session.shop, admin });
 
   return {
@@ -80,7 +83,6 @@ function ClientCrashCatcher({ children }) {
   );
 }
 
-
 function FloatingEmailButton() {
   const subject = encodeURIComponent("FiDevTeam Support");
   const body = encodeURIComponent(
@@ -89,7 +91,6 @@ function FloatingEmailButton() {
 
   const href = `mailto:hello@fidevteam.com?subject=${subject}&body=${body}`;
 
-  
   const handleClick = (e) => {
     e.preventDefault();
     try {
@@ -103,7 +104,7 @@ function FloatingEmailButton() {
     }
   };
 
-return (
+  return (
     <button
       type="button"
       onClick={handleClick}
@@ -120,12 +121,11 @@ return (
         boxShadow: "0 10px 30px rgba(0,0,0,0.22)",
         background: "linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%)",
         zIndex: 9999,
-border: "1px solid rgba(255,255,255,0.25)",
+        border: "1px solid rgba(255,255,255,0.25)",
       }}
       aria-label="Mail support"
       title="Mail support"
     >
-      {/* Simple mail icon (SVG) */}
       <svg
         width="24"
         height="24"
@@ -174,12 +174,12 @@ export default function App() {
   return (
     <ShopifyAppProvider apiKey={apiKey} embedded={true}>
       <NavMenu>
-          <a href={`/app${navQuery}`} rel="home">Home</a>
-          <a href={`/app/onboarding${navQuery}`}>Get started</a>
-          <a href={`/app/seo-tools${navQuery}`}>SEO Tools</a>
-          <a href={`/app/generation-history${navQuery}`}>Generation History</a>
-          <a href={`/app/billing${navQuery}`}>Billing</a>
-          <a href={`/app/settings${navQuery}`}>Settings</a>
+        <a href={`/app${navQuery}`} rel="home">Home</a>
+        <a href={`/app/onboarding${navQuery}`}>Get started</a>
+        <a href={`/app/seo-tools${navQuery}`}>SEO Tools</a>
+        <a href={`/app/generation-history${navQuery}`}>Generation History</a>
+        <a href={`/app/billing${navQuery}`}>Billing</a>
+        <a href={`/app/settings${navQuery}`}>Settings</a>
       </NavMenu>
 
       <ClientCrashCatcher>
