@@ -27,9 +27,8 @@ function jsonResponse(data, status = 200) {
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
 
-  // ✅ server-only import sadece loader içinde
-  const { getBillingContext } = await import("../billing.gating.server.js");
-  const ctx = await getBillingContext(session.shop, session);
+  const { session, admin } = await authenticate.admin(request);
+  const ctx = await getBillingContext({ shop: session.shop, admin });
 
   return jsonResponse({
     shop: session.shop,

@@ -21,8 +21,8 @@ export const loader = async ({ request }) => {
   const host = url.searchParams.get("host") || "";
   const embedded = url.searchParams.get("embedded") || "";
 
-  const { getBillingContext } = await import("../billing.gating.server.js");
-  const billing = await getBillingContext(request, session.shop);
+  const { session, admin } = await authenticate.admin(request);
+  const billing = await getBillingContext({ shop: session.shop, admin });
 
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
