@@ -2,15 +2,16 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
-  DeliveryMethod,
   shopifyApp,
+  DeliveryMethod,
+  BillingInterval,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
-import { BillingInterval } from "@shopify/shopify-api";
 import prisma from "./db.server.js";
 
-export const MONTHLY_PLAN = "Pro Monthly";
-export const ANNUAL_PLAN = "Pro Annual";
+// ✅ Plan isimleri (kod içinde referans edeceğiz)
+export const MONTHLY_PLAN = "pro_monthly";
+export const ANNUAL_PLAN = "pro_annual";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -22,25 +23,17 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  // ✅ REAL BILLING CONFIG (Shopify Billing API)
+  // ✅ Burası kritik: Billing config yoksa billing.check undefined olur
   billing: {
     [MONTHLY_PLAN]: {
-      lineItems: [
-        {
-          interval: BillingInterval.Every30Days,
-          amount: 19.9,
-          currencyCode: "USD",
-        },
-      ],
+      amount: 19.9,
+      currencyCode: "USD",
+      interval: BillingInterval.Every30Days,
     },
     [ANNUAL_PLAN]: {
-      lineItems: [
-        {
-          interval: BillingInterval.Annual,
-          amount: 200,
-          currencyCode: "USD",
-        },
-      ],
+      amount: 200,
+      currencyCode: "USD",
+      interval: BillingInterval.Annual,
     },
   },
 
@@ -59,9 +52,7 @@ const shopify = shopifyApp({
     },
   },
 
-  future: {
-    expiringOfflineAccessTokens: true,
-  },
+  future: { expiringOfflineAccessTokens: true },
 
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
@@ -69,7 +60,7 @@ const shopify = shopifyApp({
 });
 
 export default shopify;
-
+export const apiVersion = ApiVersion.October25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;

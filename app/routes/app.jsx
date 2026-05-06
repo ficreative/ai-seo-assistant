@@ -22,7 +22,7 @@ export const loader = async ({ request }) => {
   const embedded = url.searchParams.get("embedded") || "";
 
   const { getBillingContext } = await import("../billing.gating.server.js");
-  const billing = await getBillingContext(session.shop);
+  const billing = await getBillingContext(request, session.shop);
 
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
