@@ -14,7 +14,6 @@ import { NavMenu } from "@shopify/app-bridge-react";
 import { Page, Banner, Text, BlockStack, Box, Button, InlineStack } from "@shopify/polaris";
 
 import { authenticate } from "../shopify.server";
-import { getBillingContext } from "../billing.gating.server.js";
 
 export const loader = async ({ request }) => {
   // ✅ authenticate.admin sadece 1 kere çağrılıyor
@@ -24,7 +23,8 @@ export const loader = async ({ request }) => {
   const host = url.searchParams.get("host") || "";
   const embedded = url.searchParams.get("embedded") || "";
 
-  // ✅ billing context (server-side)
+  // ✅ billing context (server-side) -> server-only import MUST be inside loader
+  const { getBillingContext } = await import("../billing.gating.server.js");
   const billing = await getBillingContext({ shop: session.shop, admin });
 
   return {
@@ -94,11 +94,8 @@ function FloatingEmailButton() {
   const handleClick = (e) => {
     e.preventDefault();
     try {
-      if (window.top) {
-        window.top.location.href = href;
-      } else {
-        window.location.href = href;
-      }
+      if (window.top) window.top.location.href = href;
+      else window.location.href = href;
     } catch (_err) {
       window.location.href = href;
     }
@@ -204,6 +201,7 @@ export default function App() {
             </Banner>
           </Box>
         ) : null}
+
         <Outlet />
       </ClientCrashCatcher>
 
