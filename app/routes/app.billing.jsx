@@ -60,22 +60,20 @@ export const action = async ({ request }) => {
 
   try {
     if (intent === "subscribe_monthly") {
-      // request() redirects by throwing, so return never — we instead return url to client
-      await billing.request({
+      // ✅ This will usually REDIRECT by throwing/returning a Response
+      return await billing.request({
         plan: MONTHLY_PLAN,
         isTest: isTestBilling(),
         returnUrl,
       });
-      return jsonResponse({ ok: true });
     }
 
     if (intent === "subscribe_annual") {
-      await billing.request({
+      return await billing.request({
         plan: ANNUAL_PLAN,
         isTest: isTestBilling(),
         returnUrl,
       });
-      return jsonResponse({ ok: true });
     }
 
     if (intent === "cancel") {
@@ -104,6 +102,9 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: true });
     }
   } catch (e) {
+    // ✅ IMPORTANT: billing.request can throw a Response (redirect). Don't swallow it.
+    if (e instanceof Response) return e;
+
     const msg = e instanceof Error ? e.message : String(e);
     return jsonResponse({ ok: false, error: msg }, 500);
   }
