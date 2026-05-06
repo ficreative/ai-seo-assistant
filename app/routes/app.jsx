@@ -1,31 +1,24 @@
 // app/routes/app.jsx
 import { useEffect, useMemo, useState } from "react";
-import {
-  Outlet,
-  useLoaderData,
-  useRouteError,
-  isRouteErrorResponse,
-} from "react-router";
-
+import { Outlet, useLoaderData, useRouteError, isRouteErrorResponse } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
 import { NavMenu } from "@shopify/app-bridge-react";
 
 import { Page, Banner, Text, BlockStack, Box, Button, InlineStack } from "@shopify/polaris";
-
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  // ✅ authenticate.admin sadece 1 kere çağrılıyor
-  const { session, admin } = await authenticate.admin(request);
+  // ✅ authenticate.admin sadece 1 kere
+  const { session, billing } = await authenticate.admin(request);
 
   const url = new URL(request.url);
   const host = url.searchParams.get("host") || "";
   const embedded = url.searchParams.get("embedded") || "";
 
-  // ✅ billing context (server-side) -> server-only import MUST be inside loader
+  // ✅ getBillingContext'e admin değil billing gidecek
   const { getBillingContext } = await import("../billing.gating.server.js");
-  const billing = await getBillingContext({ shop: session.shop, admin });
+  const billingCtx = await getBillingContext({ shop: session.shop, billing });
 
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
@@ -33,9 +26,9 @@ export const loader = async ({ request }) => {
     host,
     embedded,
     billing: {
-      isPro: billing.isPro,
-      planKey: billing.planKey,
-      free: billing.free,
+      isPro: billingCtx.isPro,
+      planKey: billingCtx.planKey,
+      free: billingCtx.free,
     },
   };
 };
@@ -69,9 +62,7 @@ function ClientCrashCatcher({ children }) {
     <Page title="Render error">
       <Banner tone="critical" title="Render crashed">
         <BlockStack gap="200">
-          <Text as="p" variant="bodyMd">
-            {err.message}
-          </Text>
+          <Text as="p" variant="bodyMd">{err.message}</Text>
           {err.stack ? (
             <Box padding="200" background="bg-surface-secondary" borderRadius="200">
               <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{err.stack}</pre>
@@ -84,19 +75,18 @@ function ClientCrashCatcher({ children }) {
 }
 
 function FloatingEmailButton() {
-  const subject = encodeURIComponent("FiDevTeam Support");
+  const subject = encodeURIComponent("FiDevStudio Support");
   const body = encodeURIComponent(
-    "Hello,\n\nI need support with the app:\n\n- Store: \n- Issue: \n- Related page: \n- Additional details: \n\nThanks."
+    "Hello,\n\nI need support with the app:\n\n- Store:\n- Issue:\n- Related page:\n- Additional details:\n\nThanks."
   );
-
-  const href = `mailto:hello@fidevteam.com?subject=${subject}&body=${body}`;
+  const href = `mailto:hello@fidevstudio.com?subject=${subject}&body=${body}`;
 
   const handleClick = (e) => {
     e.preventDefault();
     try {
       if (window.top) window.top.location.href = href;
       else window.location.href = href;
-    } catch (_err) {
+    } catch {
       window.location.href = href;
     }
   };
@@ -123,14 +113,7 @@ function FloatingEmailButton() {
       aria-label="Mail support"
       title="Mail support"
     >
-      <svg
-        width="24"
-        height="24"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M4 7.5C4 6.12 5.12 5 6.5 5H17.5C18.88 5 20 6.12 20 7.5V16.5C20 17.88 18.88 19 17.5 19H6.5C5.12 19 4 17.88 4 16.5V7.5Z"
           stroke="white"
@@ -229,9 +212,7 @@ export function ErrorBoundary() {
   return (
     <Page title={title}>
       <Banner tone="critical" title={title}>
-        <Text as="p" variant="bodyMd">
-          {message}
-        </Text>
+        <Text as="p" variant="bodyMd">{message}</Text>
       </Banner>
     </Page>
   );
