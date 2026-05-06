@@ -41,10 +41,8 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { authenticate } = await import("../shopify.server.js");
-  const { getBillingContext, MONTHLY_PLAN, ANNUAL_PLAN, isTestBilling } = await import(
-    "../billing.gating.server.js"
-  );
+  const { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } = await import("../shopify.server.js");
+  const { getBillingContext, isTestBilling } = await import("../billing.gating.server.js");
 
   const { session, billing } = await authenticate.admin(request);
   const form = await request.formData();
@@ -53,23 +51,31 @@ export const action = async ({ request }) => {
   const url = new URL(request.url);
   const returnUrl = `${process.env.SHOPIFY_APP_URL || url.origin}/app/billing?${url.searchParams.toString()}`;
 
+  if (!billing) {
+    return jsonResponse({ ok: false, error: "Billing object is missing. Check shopify.server.js billing config." }, 500);
+  }
+
+  const plan =
+    intent === "subscribe_monthly"
+      ? MONTHLY_PLAN
+      : intent === "subscribe_annual"
+      ? ANNUAL_PLAN
+      : null;
+
   try {
-    if (intent === "subscribe_monthly") {
-      return await billing.request({
-        plan: MONTHLY_PLAN,
+    // Subscribe
+    if (plan) {
+      const confirmationUrl = await billing.request({
+        plan,
         isTest: isTestBilling(),
         returnUrl,
       });
+
+      // ✅ fetcher redirect’leri bazen otomatik takip etmiyor
+      return jsonResponse({ ok: true, confirmationUrl });
     }
 
-    if (intent === "subscribe_annual") {
-      return await billing.request({
-        plan: ANNUAL_PLAN,
-        isTest: isTestBilling(),
-        returnUrl,
-      });
-    }
-
+    // Cancel
     if (intent === "cancel") {
       const ctx = await getBillingContext({ shop: session.shop, billing });
       const sub = ctx.activeSubscription;
@@ -87,6 +93,7 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: true });
     }
 
+    // Dev helper
     if (intent === "reset_usage") {
       if (process.env.NODE_ENV === "production") {
         return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
@@ -96,9 +103,9 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: true });
     }
 
-    return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
+    return jsonResponse({ ok: false, error: `Unknown intent: ${intent}` }, 400);
   } catch (e) {
-    // ✅ billing.request çoğu zaman redirect Response döndürür/fırlatır
+    // billing SDK bazen Response fırlatabilir
     if (e instanceof Response) return e;
 
     const msg = e instanceof Error ? e.message : String(e);
@@ -112,8 +119,17 @@ export default function Billing() {
 
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
+  // ✅ subscribe sonrası Shopify confirmation ekranına git
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
+    const url = fetcher.data?.confirmationUrl;
+    if (url) {
+      window.top.location.href = url;
+    }
+  }, [fetcher.data]);
+
+  // cancel/reset sonrası refresh
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok && !fetcher.data?.confirmationUrl) {
       window.location.reload();
     }
   }, [fetcher.state, fetcher.data]);
@@ -124,7 +140,6 @@ export default function Billing() {
 
   const proActive = billing?.isPro;
 
-  // UI textleri plan dosyanızdan geliyorsa burada useMemo ile bağlayabilirsin.
   const freeFeatures = useMemo(
     () => [
       "Up to 10 products / month",
