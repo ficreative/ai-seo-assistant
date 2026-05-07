@@ -9,7 +9,6 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server.js";
 
-// ✅ Plan handle'ları (Shopify Billing API config keys) — TEK KAYNAK
 export const MONTHLY_PLAN = "pro_monthly";
 export const ANNUAL_PLAN = "pro_annual";
 
@@ -21,15 +20,12 @@ const shopify = shopifyApp({
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
-
-  // ÖNEMLİ: Cloud Run URL
-  appUrl: process.env.SHOPIFY_APP_URL || process.env.APP_URL || "",
+  appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  // ✅ REAL BILLING CONFIG (Shopify Billing API)
+  // ✅ Shopify Billing API (subscription)
   billing: {
     [MONTHLY_PLAN]: {
       lineItems: [

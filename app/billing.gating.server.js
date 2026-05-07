@@ -6,71 +6,75 @@ import {
   resetFreeUsageMonthly,
 } from "./billing.usage.server.js";
 
-import { MONTHLY_PLAN, ANNUAL_PLAN } from "./shopify.server.js";
+export const MONTHLY_PLAN = "pro_monthly";
+export const ANNUAL_PLAN = "pro_annual";
 
-// Shopify Partner dev store test charges için
 export function isTestBilling() {
-  return String(process.env.SHOPIFY_BILLING_TEST || "")
-    .toLowerCase()
-    .trim() === "true";
+  // Review/dev store için genelde TRUE gerekir.
+  // Cloud Run'da SHOPIFY_BILLING_TEST=true yaparsan test charge kullanır.
+  return String(process.env.SHOPIFY_BILLING_TEST || "").toLowerCase() === "true";
 }
 
-/**
- * billing: authenticate.admin(request) içinden gelir.
- * Bazı senaryolarda billing undefined olabilir (özellikle auth/embedded edge-case).
- * Crash etmeyelim → Free plan fallback dönelim.
- */
 export async function getBillingContext({ shop, billing }) {
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
   const usage = await getFreeUsageMonthly(shop, freeLimit);
 
-  // Default (free)
-  const base = {
-    planKey: "free",
-    isPro: false,
-    mode: isTestBilling() ? "test" : "live",
-    activeSubscription: null,
-    free: {
-      limit: freeLimit,
-      ...usage,
-    },
-  };
-
-  if (!billing || typeof billing.check !== "function") {
-    return base;
+  // billing objesi gelmezse (misconfig / eski rev) crash etmeyelim
+  if (!billing) {
+    return {
+      planKey: BILLING_PLANS.FREE.key,
+      isPro: false,
+      mode: "live",
+      activeSubscription: null,
+      free: { monthlyLimit: freeLimit, ...usage },
+      plans: BILLING_PLANS,
+    };
   }
 
-  // ✅ Shopify Billing API kontrolü
-  const checkResult = await billing.check({
-    plans: [MONTHLY_PLAN, ANNUAL_PLAN],
-    isTest: isTestBilling(),
-  });
+  // Shopify Billing API: aktif subscription var mı?
+  let checkResult = null;
+  try {
+    checkResult = await billing.check({
+      plans: [MONTHLY_PLAN, ANNUAL_PLAN],
+      isTest: isTestBilling(),
+    });
+  } catch (err) {
+    console.error("[BILLING] check error:", err);
+  }
 
-  // checkResult shape genelde:
-  // { hasActivePayment, appSubscriptions? / subscriptions? , activeSubscriptions? } (pakete göre değişebilir)
   const active =
-    (checkResult?.activeSubscriptions && checkResult.activeSubscriptions[0]) ||
-    (checkResult?.appSubscriptions && checkResult.appSubscriptions[0]) ||
-    (Array.isArray(checkResult?.subscriptions) && checkResult.subscriptions[0]) ||
-    null;
+    checkResult?.hasActivePayment &&
+    Array.isArray(checkResult?.subscriptions) &&
+    checkResult.subscriptions.length
+      ? checkResult.subscriptions[0]
+      : null;
 
-  const isPro = Boolean(checkResult?.hasActivePayment || active);
+  const isPro = Boolean(active);
 
   return {
-    ...base,
-    planKey: isPro ? "pro" : "free",
+    planKey: isPro ? BILLING_PLANS.PRO.key : BILLING_PLANS.FREE.key,
     isPro,
+    mode: "live",
     activeSubscription: active,
+    free: { monthlyLimit: freeLimit, ...usage },
+    plans: BILLING_PLANS,
   };
 }
 
-export async function reserveIfFreePlan({ shop, productCount }) {
+export async function reserveIfFreePlan({ shop, productCount, billing }) {
+  const ctx = await getBillingContext({ shop, billing });
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
+
+  if (ctx.isPro) {
+    return { ok: true, ...ctx };
+  }
+
   const reservation = await reserveFreeUsageMonthly(shop, productCount, freeLimit);
   return {
     ok: reservation.ok,
     code: reservation.code,
-    free: reservation,
+    ...ctx,
+    free: { monthlyLimit: freeLimit, ...reservation },
   };
 }
 
