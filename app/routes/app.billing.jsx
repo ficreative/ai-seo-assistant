@@ -45,37 +45,52 @@ export const action = async ({ request }) => {
   const { getBillingContext, isTestBilling } = await import("../billing.gating.server.js");
 
   const { session, billing } = await authenticate.admin(request);
+
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
   const url = new URL(request.url);
-  const returnUrl = `${process.env.SHOPIFY_APP_URL || url.origin}/app/billing?${url.searchParams.toString()}`;
+  const baseUrl = process.env.SHOPIFY_APP_URL || process.env.APP_URL || url.origin;
 
-  if (!billing) {
-    return jsonResponse({ ok: false, error: "Billing object is missing. Check shopify.server.js billing config." }, 500);
-  }
-
-  const plan =
-    intent === "subscribe_monthly"
-      ? MONTHLY_PLAN
-      : intent === "subscribe_annual"
-      ? ANNUAL_PLAN
-      : null;
+  // ReturnUrl embedded query'yi korusun
+  const returnUrl = `${baseUrl}/app/billing?${url.searchParams.toString()}`;
 
   try {
-    // Subscribe
-    if (plan) {
-      const confirmationUrl = await billing.request({
-        plan,
+    if (!billing) {
+      console.error("[BILLING] billing object is missing", { shop: session.shop, intent, returnUrl });
+      return jsonResponse({ ok: false, error: "Billing is not available (missing billing object)." }, 500);
+    }
+
+    if (intent === "subscribe_monthly") {
+      console.error("[BILLING] request monthly", {
+        shop: session.shop,
+        plan: MONTHLY_PLAN,
         isTest: isTestBilling(),
         returnUrl,
       });
 
-      // ✅ fetcher redirect’leri bazen otomatik takip etmiyor
-      return jsonResponse({ ok: true, confirmationUrl });
+      return await billing.request({
+        plan: MONTHLY_PLAN,
+        isTest: isTestBilling(),
+        returnUrl,
+      });
     }
 
-    // Cancel
+    if (intent === "subscribe_annual") {
+      console.error("[BILLING] request annual", {
+        shop: session.shop,
+        plan: ANNUAL_PLAN,
+        isTest: isTestBilling(),
+        returnUrl,
+      });
+
+      return await billing.request({
+        plan: ANNUAL_PLAN,
+        isTest: isTestBilling(),
+        returnUrl,
+      });
+    }
+
     if (intent === "cancel") {
       const ctx = await getBillingContext({ shop: session.shop, billing });
       const sub = ctx.activeSubscription;
@@ -83,6 +98,12 @@ export const action = async ({ request }) => {
       if (!sub?.id) {
         return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
       }
+
+      console.error("[BILLING] cancel", {
+        shop: session.shop,
+        subscriptionId: sub.id,
+        isTest: isTestBilling(),
+      });
 
       await billing.cancel({
         subscriptionId: sub.id,
@@ -93,7 +114,6 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: true });
     }
 
-    // Dev helper
     if (intent === "reset_usage") {
       if (process.env.NODE_ENV === "production") {
         return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
@@ -103,10 +123,19 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: true });
     }
 
-    return jsonResponse({ ok: false, error: `Unknown intent: ${intent}` }, 400);
+    return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // billing SDK bazen Response fırlatabilir
+    // ✅ billing.request çoğu zaman redirect Response döndürür
     if (e instanceof Response) return e;
+
+    // ✅ Gerçek hatayı Cloud Run stderr’e bas
+    console.error("[BILLING] action error", {
+      shop: session.shop,
+      intent,
+      error: e,
+      message: e?.message,
+      stack: e?.stack,
+    });
 
     const msg = e instanceof Error ? e.message : String(e);
     return jsonResponse({ ok: false, error: msg }, 500);
@@ -119,17 +148,8 @@ export default function Billing() {
 
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
-  // ✅ subscribe sonrası Shopify confirmation ekranına git
   useEffect(() => {
-    const url = fetcher.data?.confirmationUrl;
-    if (url) {
-      window.top.location.href = url;
-    }
-  }, [fetcher.data]);
-
-  // cancel/reset sonrası refresh
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok && !fetcher.data?.confirmationUrl) {
+    if (fetcher.state === "idle" && fetcher.data?.ok) {
       window.location.reload();
     }
   }, [fetcher.state, fetcher.data]);
@@ -137,7 +157,6 @@ export default function Billing() {
   const free = billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
   const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";
-
   const proActive = billing?.isPro;
 
   const freeFeatures = useMemo(
