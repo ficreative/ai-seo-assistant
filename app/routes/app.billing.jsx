@@ -26,8 +26,8 @@ export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { getBillingContext } = await import("../billing.gating.server.js");
 
-  const { session, admin } = await authenticate.admin(request);
-  const ctx = await getBillingContext({ shop: session.shop, admin });
+  const { session, billing } = await authenticate.admin(request);
+  const ctx = await getBillingContext({ shop: session.shop, billing });
 
   return jsonResponse({
     shop: session.shop,
@@ -36,61 +36,57 @@ export const loader = async ({ request }) => {
       isPro: ctx.isPro,
       mode: ctx.mode,
       free: ctx.free,
+      billingReady: ctx.billingReady,
+      activeSubscription: ctx.activeSubscription,
     },
   });
 };
 
 export const action = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
-  const {
-    getBillingContext,
-    MONTHLY_PLAN,
-    ANNUAL_PLAN,
-    isTestBilling,
-    requestSubscription,
-    cancelSubscription,
-    resetFreeUsage,
-  } = await import("../billing.gating.server.js");
+  const { getBillingContext, MONTHLY_PLAN, ANNUAL_PLAN, isTestBilling } = await import(
+    "../billing.gating.server.js"
+  );
 
-  const { session, admin } = await authenticate.admin(request);
+  const { session, billing } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
   const url = new URL(request.url);
-  const baseUrl = process.env.SHOPIFY_APP_URL || url.origin;
-  const returnUrl = `${baseUrl}/app/billing?${url.searchParams.toString()}`;
+  const returnUrl = `${process.env.SHOPIFY_APP_URL || url.origin}/app/billing?${url.searchParams.toString()}`;
+
+  if (!billing) {
+    return jsonResponse({ ok: false, error: "Billing is not available (billing object is missing)." }, 500);
+  }
 
   try {
     if (intent === "subscribe_monthly") {
-      const confirmationUrl = await requestSubscription({
-        admin,
+      return await billing.request({
         plan: MONTHLY_PLAN,
+        isTest: isTestBilling(),
         returnUrl,
-        test: isTestBilling(),
       });
-      return Response.redirect(confirmationUrl, 302);
     }
 
     if (intent === "subscribe_annual") {
-      const confirmationUrl = await requestSubscription({
-        admin,
+      return await billing.request({
         plan: ANNUAL_PLAN,
+        isTest: isTestBilling(),
         returnUrl,
-        test: isTestBilling(),
       });
-      return Response.redirect(confirmationUrl, 302);
     }
 
     if (intent === "cancel") {
-      const ctx = await getBillingContext({ shop: session.shop, admin });
+      const ctx = await getBillingContext({ shop: session.shop, billing });
       const sub = ctx.activeSubscription;
+
       if (!sub?.id) {
         return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
       }
 
-      await cancelSubscription({
-        admin,
+      await billing.cancel({
         subscriptionId: sub.id,
+        isTest: isTestBilling(),
         prorate: true,
       });
 
@@ -101,21 +97,20 @@ export const action = async ({ request }) => {
       if (process.env.NODE_ENV === "production") {
         return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
       }
+      const { resetFreeUsage } = await import("../billing.gating.server.js");
       await resetFreeUsage({ shop: session.shop });
       return jsonResponse({ ok: true });
     }
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // ✅ IMPORTANT: log full details (this is what your logs were missing)
-    const details = e instanceof Error
-      ? { name: e.name, message: e.message, stack: e.stack }
-      : { message: String(e) };
+    // billing.request çoğu zaman redirect Response döndürür / fırlatır
+    if (e instanceof Response) return e;
 
-    // eslint-disable-next-line no-console
-    console.error("[BILLING] action error:", JSON.stringify(details));
-
-    return jsonResponse({ ok: false, error: details.message || "Billing error" }, 500);
+    const msg = e instanceof Error ? e.message : String(e);
+    // Loglarda daha net görmek için:
+    console.error("[BILLING] action error:", e);
+    return jsonResponse({ ok: false, error: msg }, 500);
   }
 };
 
@@ -123,7 +118,7 @@ export default function Billing() {
   const { billing } = useLoaderData();
   const fetcher = useFetcher();
 
-  const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
+  const actionError = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.ok) {
@@ -134,7 +129,6 @@ export default function Billing() {
   const free = billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
   const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";
-
   const proActive = billing?.isPro;
 
   const freeFeatures = useMemo(
@@ -164,9 +158,17 @@ export default function Billing() {
   return (
     <Page title="Billing">
       <BlockStack gap="400">
-        {error ? (
+        {!billing?.billingReady ? (
+          <Banner tone="critical" title="Billing is not configured yet">
+            <Text as="p" variant="bodyMd">
+              Billing object is missing or billing.check is unavailable. Check your production billing setup and env vars.
+            </Text>
+          </Banner>
+        ) : null}
+
+        {actionError ? (
           <Banner tone="critical" title="Billing error">
-            <Text as="p" variant="bodyMd">{error}</Text>
+            <Text as="p" variant="bodyMd">{actionError}</Text>
           </Banner>
         ) : null}
 

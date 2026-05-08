@@ -3,8 +3,8 @@ import {
   ApiVersion,
   AppDistribution,
   DeliveryMethod,
-  BillingInterval,
   shopifyApp,
+  BillingInterval,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server.js";
@@ -20,12 +20,12 @@ const shopify = shopifyApp({
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
-  appUrl: process.env.SHOPIFY_APP_URL || "",
+  appUrl: process.env.SHOPIFY_APP_URL || process.env.APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  // ✅ Billing plan config (still OK to keep; but we won’t rely on billing helper anymore)
+  // ✅ REAL BILLING CONFIG (Shopify Billing API)
   billing: {
     [MONTHLY_PLAN]: {
       lineItems: [
@@ -62,15 +62,18 @@ const shopify = shopifyApp({
     },
   },
 
-  future: { expiringOfflineAccessTokens: true },
+  future: {
+    expiringOfflineAccessTokens: true,
+  },
+
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
 });
 
 export default shopify;
-
 export const apiVersion = ApiVersion.October25;
+
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
