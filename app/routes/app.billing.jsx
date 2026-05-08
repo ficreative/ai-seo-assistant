@@ -22,21 +22,6 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-function safeErr(e) {
-  const out = {
-    name: e?.name,
-    message: e?.message,
-    stack: e?.stack,
-    cause: e?.cause,
-  };
-
-  // Shopify libs bazen extra alan koyuyor
-  if (e?.response) out.response = e.response;
-  if (e?.errors) out.errors = e.errors;
-
-  return out;
-}
-
 export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { getBillingContext } = await import("../billing.gating.server.js");
@@ -56,21 +41,34 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { authenticate } = await import("../shopify.server.js");
-  const { getBillingContext, MONTHLY_PLAN, ANNUAL_PLAN, isTestBilling } = await import(
-    "../billing.gating.server.js"
-  );
+  const { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } = await import("../shopify.server.js");
+  const { getBillingContext, isTestBilling } = await import("../billing.gating.server.js");
 
   const { session, billing } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
-  // returnUrl: aynı host/shop/embedded paramlarını koru, sadece path’i billing yap
+  // returnUrl: SHOPIFY_APP_URL + aynı query (host/shop/embedded)
   const url = new URL(request.url);
-  url.pathname = "/app/billing";
-  const returnUrl = url.toString();
+  const base = process.env.SHOPIFY_APP_URL || url.origin;
+
+  const returnUrlObj = new URL(`${base}/app/billing`);
+  // mevcut query paramları taşı
+  for (const [k, v] of url.searchParams.entries()) returnUrlObj.searchParams.set(k, v);
+  // güvene al
+  returnUrlObj.searchParams.set("shop", session.shop);
+  returnUrlObj.searchParams.set("embedded", "1");
+
+  const returnUrl = returnUrlObj.toString();
 
   try {
+    if (!billing) {
+      return jsonResponse(
+        { ok: false, error: "Billing object missing from authenticate.admin(request)." },
+        500
+      );
+    }
+
     if (intent === "subscribe_monthly") {
       return await billing.request({
         plan: MONTHLY_PLAN,
@@ -91,12 +89,13 @@ export const action = async ({ request }) => {
       const ctx = await getBillingContext({ shop: session.shop, billing });
       const sub = ctx.activeSubscription;
 
-      if (!sub?.id) {
+      const subId = sub?.id || sub?.subscriptionId;
+      if (!subId) {
         return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
       }
 
       await billing.cancel({
-        subscriptionId: sub.id,
+        subscriptionId: subId,
         isTest: isTestBilling(),
         prorate: true,
       });
@@ -115,21 +114,31 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // billing.request çoğu zaman redirect Response döndürür
+    // ✅ Shopify billing lib çoğu zaman Response döndürür/fırlatır (redirect)
     if (e instanceof Response) return e;
 
-    // ✅ Burada artık gerçek detay logluyoruz (Cloud Run stderr’de görünecek)
+    // ✅ Detaylı log: artık gerçek sebebi göreceğiz
+    const err = e instanceof Error ? e : new Error(String(e));
+    const extra = {
+      name: err.name,
+      message: err.message,
+      // bazı billing error’larda bunlar bulunuyor:
+      cause: err.cause,
+      response: err.response,
+    };
     // eslint-disable-next-line no-console
-    console.error("[BILLING] action error:", JSON.stringify(safeErr(e), null, 2));
+    console.error("[BILLING] action error:", extra);
+    // eslint-disable-next-line no-console
+    console.error("[BILLING] action error stack:", err.stack);
 
-    const msg = e instanceof Error ? e.message : String(e);
-    return jsonResponse({ ok: false, error: msg }, 500);
+    return jsonResponse({ ok: false, error: err.message }, 500);
   }
 };
 
 export default function Billing() {
   const { billing } = useLoaderData();
   const fetcher = useFetcher();
+
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
   useEffect(() => {
@@ -141,6 +150,7 @@ export default function Billing() {
   const free = billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
   const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";
+
   const proActive = billing?.isPro;
 
   const freeFeatures = useMemo(

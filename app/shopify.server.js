@@ -20,17 +20,12 @@ const shopify = shopifyApp({
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
-
-  // IMPORTANT: must be the public app URL (Cloud Run URL)
   appUrl: process.env.SHOPIFY_APP_URL || "",
-
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
-
-  // App Store dağıtımı
   distribution: AppDistribution.AppStore,
 
-  // ✅ Billing API (subscriptions)
+  // ✅ REAL BILLING CONFIG (Shopify Billing API)
   billing: {
     [MONTHLY_PLAN]: {
       lineItems: [
@@ -70,6 +65,7 @@ const shopify = shopifyApp({
   future: {
     expiringOfflineAccessTokens: true,
   },
+
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
@@ -79,10 +75,8 @@ export default shopify;
 
 export const apiVersion = ApiVersion.October25;
 export const addDocumentResponseHeaders = shopify.addDocumentResponseHeaders;
-
 export const authenticate = shopify.authenticate;
 export const unauthenticated = shopify.unauthenticated;
 export const login = shopify.login;
-
 export const registerWebhooks = shopify.registerWebhooks;
 export const sessionStorage = shopify.sessionStorage;
