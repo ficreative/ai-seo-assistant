@@ -25,7 +25,7 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  // ✅ Shopify Billing API config (plan handle'ları burada tanımlı)
+  // ✅ REAL BILLING CONFIG (Shopify Billing API)
   billing: {
     [MONTHLY_PLAN]: {
       lineItems: [

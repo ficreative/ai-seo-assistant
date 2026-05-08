@@ -6,104 +6,98 @@ import {
   resetFreeUsageMonthly,
 } from "./billing.usage.server.js";
 
-// ✅ Tek kaynak: plan handle'ları shopify.server.js'den gelsin (asla kopyalama)
-import { MONTHLY_PLAN, ANNUAL_PLAN } from "./shopify.server.js";
-
-export { MONTHLY_PLAN, ANNUAL_PLAN };
+// ⚠️ Plan adları shopify.server.js billing config ile aynı olmalı
+export const MONTHLY_PLAN = "pro_monthly";
+export const ANNUAL_PLAN = "pro_annual";
 
 export function isTestBilling() {
   return String(process.env.SHOPIFY_BILLING_TEST || "").toLowerCase() === "true";
 }
 
-function safeErrorObject(e) {
-  if (!e) return null;
-  try {
-    const obj = {};
-    for (const k of Object.getOwnPropertyNames(e)) obj[k] = e[k];
-    // bazen cause/response nested olur
-    obj.cause = e.cause;
-    obj.response = e.response;
-    return obj;
-  } catch {
-    return { message: String(e) };
+function serializeError(e) {
+  if (!e) return { message: "Unknown error" };
+  if (e instanceof Error) {
+    return {
+      name: e.name,
+      message: e.message,
+      stack: e.stack,
+      cause: e.cause,
+    };
   }
+  return { message: String(e) };
 }
 
 /**
- * billing: authenticate.admin(request) içinden gelen billing objesi
- * - billing yoksa free plan fallback dön
- * - billing.check hata atarsa fallback + log
+ * billing: authenticate.admin(request) içinden gelen billing objesi olmalı.
+ * billing undefined gelirse crash etmeyelim; free plan fallback dönelim.
  */
 export async function getBillingContext({ shop, billing }) {
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
   const usage = await getFreeUsageMonthly(shop, freeLimit);
 
-  // default: free
-  const base = {
+  const ctx = {
     planKey: "free",
     isPro: false,
-    mode: "shopify",
+    mode: "unconfigured", // "shopify" | "unconfigured"
     free: {
       monthlyLimit: freeLimit,
       ...usage,
     },
     activeSubscription: null,
+    plans: BILLING_PLANS,
   };
 
-  if (!billing) return base;
+  if (!billing || typeof billing.check !== "function") {
+    return ctx;
+  }
+
+  ctx.mode = "shopify";
 
   try {
-    // billing.check -> aktif subscription var mı?
     const check = await billing.check({
       plans: [MONTHLY_PLAN, ANNUAL_PLAN],
       isTest: isTestBilling(),
     });
 
-    // check objesi lib sürümüne göre değişebilir; güvenli okuyalım
-    const activeSubs =
-      check?.appSubscriptions ||
-      check?.subscriptions ||
-      check?.activeSubscriptions ||
-      [];
+    ctx.isPro = Boolean(check?.hasActivePayment);
 
-    const active = Array.isArray(activeSubs) ? activeSubs[0] : null;
+    if (ctx.isPro) {
+      const subs = check?.appSubscriptions || [];
+      const active =
+        subs.find((s) => s.status === "ACTIVE") ||
+        subs.find((s) => s.status === "ACCEPTED") ||
+        subs[0];
 
-    const activePlan =
-      active?.name || active?.plan || active?.planName || active?.handle;
+      if (active) {
+        ctx.activeSubscription = {
+          id: active.id,
+          name: active.name,
+          status: active.status,
+          test: active.test,
+        };
 
-    const isPro = Boolean(active);
-
-    return {
-      ...base,
-      isPro,
-      planKey: activePlan === ANNUAL_PLAN ? "pro_annual" : isPro ? "pro_monthly" : "free",
-      activeSubscription: active
-        ? {
-            id: active.id,
-            name: activePlan,
-            status: active.status,
-          }
-        : null,
-    };
+        ctx.planKey = active.name === ANNUAL_PLAN ? "annual" : "monthly";
+      } else {
+        ctx.planKey = "monthly";
+      }
+    }
   } catch (e) {
-    // Bu log’u özellikle detaylı basıyoruz ki Cloud Run’da root cause görelim
-    // eslint-disable-next-line no-console
-    console.error("[BILLING] check error", safeErrorObject(e));
-    return base;
+    console.error("[BILLING] check error:", serializeError(e));
   }
+
+  return ctx;
 }
 
 export async function reserveIfFreePlan({ shop, productCount }) {
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
-  const usage = await getFreeUsageMonthly(shop, freeLimit);
-
   const reservation = await reserveFreeUsageMonthly(shop, productCount, freeLimit);
+
   return {
     ok: reservation.ok,
     code: reservation.code,
     planKey: "free",
-    mode: "shopify",
-    free: reservation.ok ? reservation : usage,
+    mode: "free",
+    free: reservation,
   };
 }
 
