@@ -22,6 +22,19 @@ function jsonResponse(data, status = 200) {
   });
 }
 
+function safeErrorObject(e) {
+  if (!e) return null;
+  try {
+    const obj = {};
+    for (const k of Object.getOwnPropertyNames(e)) obj[k] = e[k];
+    obj.cause = e.cause;
+    obj.response = e.response;
+    return obj;
+  } catch {
+    return { message: String(e) };
+  }
+}
+
 export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { getBillingContext } = await import("../billing.gating.server.js");
@@ -36,19 +49,16 @@ export const loader = async ({ request }) => {
       isPro: ctx.isPro,
       mode: ctx.mode,
       free: ctx.free,
-      activeSubscription: ctx.activeSubscription || null,
+      activeSubscription: ctx.activeSubscription,
     },
   });
 };
 
 export const action = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
-  const {
-    getBillingContext,
-    MONTHLY_PLAN,
-    ANNUAL_PLAN,
-    isTestBilling,
-  } = await import("../billing.gating.server.js");
+  const { getBillingContext, MONTHLY_PLAN, ANNUAL_PLAN, isTestBilling } = await import(
+    "../billing.gating.server.js"
+  );
 
   const { session, billing } = await authenticate.admin(request);
   const form = await request.formData();
@@ -56,29 +66,41 @@ export const action = async ({ request }) => {
 
   const url = new URL(request.url);
   const base = process.env.SHOPIFY_APP_URL || url.origin;
+
+  // Shopify embedded dönüş URL’i: mevcut query’yi koru (host, embedded, shop vs.)
   const returnUrl = `${base}/app/billing?${url.searchParams.toString()}`;
-  const testFlag = isTestBilling();
 
   try {
-    if (intent === "subscribe_monthly") {
-      // ✅ burada plan string kesin dolu olmalı
-      if (!MONTHLY_PLAN) return jsonResponse({ ok: false, error: "MONTHLY_PLAN is missing" }, 500);
+    if (!billing) {
+      return jsonResponse({ ok: false, error: "Billing is not available on this request." }, 500);
+    }
 
-      return await billing.request({
+    if (intent === "subscribe_monthly") {
+      // ✅ plan handle kesin string olmalı
+      if (!MONTHLY_PLAN) return jsonResponse({ ok: false, error: "MONTHLY_PLAN is undefined" }, 500);
+
+      const resp = await billing.request({
         plan: MONTHLY_PLAN,
-        isTest: testFlag,
+        isTest: isTestBilling(),
         returnUrl,
       });
+
+      // billing.request çoğunlukla redirect Response döndürür
+      if (resp instanceof Response) return resp;
+      return jsonResponse({ ok: true });
     }
 
     if (intent === "subscribe_annual") {
-      if (!ANNUAL_PLAN) return jsonResponse({ ok: false, error: "ANNUAL_PLAN is missing" }, 500);
+      if (!ANNUAL_PLAN) return jsonResponse({ ok: false, error: "ANNUAL_PLAN is undefined" }, 500);
 
-      return await billing.request({
+      const resp = await billing.request({
         plan: ANNUAL_PLAN,
-        isTest: testFlag,
+        isTest: isTestBilling(),
         returnUrl,
       });
+
+      if (resp instanceof Response) return resp;
+      return jsonResponse({ ok: true });
     }
 
     if (intent === "cancel") {
@@ -91,7 +113,7 @@ export const action = async ({ request }) => {
 
       await billing.cancel({
         subscriptionId: sub.id,
-        isTest: testFlag,
+        isTest: isTestBilling(),
         prorate: true,
       });
 
@@ -109,19 +131,16 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // ✅ EN KRİTİK: BillingError detayını Cloud Run loglarına bas
+    // 🔥 Kritik: Shopify BillingError detayını log’a bas
+    // eslint-disable-next-line no-console
     console.error("[BILLING] action error", {
       shop: session.shop,
       intent,
-      isTest: testFlag,
       returnUrl,
-      message: e instanceof Error ? e.message : String(e),
-      stack: e instanceof Error ? e.stack : undefined,
-      cause: e?.cause,
-      response: e?.response,
+      isTest: isTestBilling(),
+      error: safeErrorObject(e),
     });
 
-    // billing.request bazen Response döndürür/fırlatır (redirect)
     if (e instanceof Response) return e;
 
     const msg = e instanceof Error ? e.message : String(e);

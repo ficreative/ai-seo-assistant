@@ -16,22 +16,16 @@ const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
   apiVersion: ApiVersion.October25,
-
-  // SCOPES env: "read_products,write_products,..."
   scopes: (process.env.SCOPES || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
-
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-
   sessionStorage: new PrismaSessionStorage(prisma),
-
-  // App Store dağıtımı
   distribution: AppDistribution.AppStore,
 
-  // ✅ Shopify Billing API plan config (handle'lar: pro_monthly, pro_annual)
+  // ✅ Shopify Billing API config (plan handle'ları burada tanımlı)
   billing: {
     [MONTHLY_PLAN]: {
       lineItems: [
@@ -65,14 +59,6 @@ const shopify = shopifyApp({
     SHOP_REDACT: {
       deliveryMethod: DeliveryMethod.Http,
       callbackUrl: "/webhooks/shop/redact",
-    },
-    APP_UNINSTALLED: {
-      deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/app/uninstalled",
-    },
-    APP_SCOPES_UPDATE: {
-      deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/app/scopes_update",
     },
   },
 

@@ -6,102 +6,104 @@ import {
   resetFreeUsageMonthly,
 } from "./billing.usage.server.js";
 
-export const MONTHLY_PLAN = "pro_monthly";
-export const ANNUAL_PLAN = "pro_annual";
+// ✅ Tek kaynak: plan handle'ları shopify.server.js'den gelsin (asla kopyalama)
+import { MONTHLY_PLAN, ANNUAL_PLAN } from "./shopify.server.js";
+
+export { MONTHLY_PLAN, ANNUAL_PLAN };
 
 export function isTestBilling() {
   return String(process.env.SHOPIFY_BILLING_TEST || "").toLowerCase() === "true";
 }
 
+function safeErrorObject(e) {
+  if (!e) return null;
+  try {
+    const obj = {};
+    for (const k of Object.getOwnPropertyNames(e)) obj[k] = e[k];
+    // bazen cause/response nested olur
+    obj.cause = e.cause;
+    obj.response = e.response;
+    return obj;
+  } catch {
+    return { message: String(e) };
+  }
+}
+
 /**
- * billing: authenticate.admin(request) içinden gelen billing objesi olmalı.
- * Burada crash yerine güvenli fallback veriyoruz.
+ * billing: authenticate.admin(request) içinden gelen billing objesi
+ * - billing yoksa free plan fallback dön
+ * - billing.check hata atarsa fallback + log
  */
 export async function getBillingContext({ shop, billing }) {
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
   const usage = await getFreeUsageMonthly(shop, freeLimit);
 
-  // billing objesi yoksa (ya da yanlış geldi ise) güvenli fallback
-  if (!billing || typeof billing.check !== "function") {
-    return {
-      planKey: "free",
-      isPro: false,
-      mode: "shopify",
-      activeSubscription: null,
-      free: { monthlyLimit: freeLimit, ...usage },
-      plans: BILLING_PLANS,
-    };
-  }
+  // default: free
+  const base = {
+    planKey: "free",
+    isPro: false,
+    mode: "shopify",
+    free: {
+      monthlyLimit: freeLimit,
+      ...usage,
+    },
+    activeSubscription: null,
+  };
+
+  if (!billing) return base;
 
   try {
-    // Shopify billing.check genelde { hasActivePayment, appSubscriptions } döndürür.
+    // billing.check -> aktif subscription var mı?
     const check = await billing.check({
       plans: [MONTHLY_PLAN, ANNUAL_PLAN],
       isTest: isTestBilling(),
     });
 
-    const appSubscriptions = Array.isArray(check?.appSubscriptions)
-      ? check.appSubscriptions
-      : [];
+    // check objesi lib sürümüne göre değişebilir; güvenli okuyalım
+    const activeSubs =
+      check?.appSubscriptions ||
+      check?.subscriptions ||
+      check?.activeSubscriptions ||
+      [];
 
-    const activeSubscription = appSubscriptions.find((s) => s?.status === "ACTIVE") || null;
-    const isPro = Boolean(check?.hasActivePayment) || Boolean(activeSubscription);
+    const active = Array.isArray(activeSubs) ? activeSubs[0] : null;
 
-    // planKey: hangi plan aktif?
-    const planKey =
-      activeSubscription?.name === MONTHLY_PLAN
-        ? MONTHLY_PLAN
-        : activeSubscription?.name === ANNUAL_PLAN
-          ? ANNUAL_PLAN
-          : "free";
+    const activePlan =
+      active?.name || active?.plan || active?.planName || active?.handle;
+
+    const isPro = Boolean(active);
 
     return {
-      planKey,
+      ...base,
       isPro,
-      mode: "shopify",
-      activeSubscription,
-      free: { monthlyLimit: freeLimit, ...usage },
-      plans: BILLING_PLANS,
+      planKey: activePlan === ANNUAL_PLAN ? "pro_annual" : isPro ? "pro_monthly" : "free",
+      activeSubscription: active
+        ? {
+            id: active.id,
+            name: activePlan,
+            status: active.status,
+          }
+        : null,
     };
   } catch (e) {
-    // ✅ Asıl kritik: hatayı detaylı logla (Cloud Run stderr)
-    console.error("[BILLING] check error", {
-      shop,
-      isTest: isTestBilling(),
-      message: e instanceof Error ? e.message : String(e),
-      stack: e instanceof Error ? e.stack : undefined,
-      // Shopify BillingError bazen extra field taşır:
-      cause: e?.cause,
-      response: e?.response,
-    });
-
-    return {
-      planKey: "free",
-      isPro: false,
-      mode: "shopify",
-      activeSubscription: null,
-      free: { monthlyLimit: freeLimit, ...usage },
-      plans: BILLING_PLANS,
-      error: "Billing check failed",
-    };
+    // Bu log’u özellikle detaylı basıyoruz ki Cloud Run’da root cause görelim
+    // eslint-disable-next-line no-console
+    console.error("[BILLING] check error", safeErrorObject(e));
+    return base;
   }
 }
 
-export async function reserveIfFreePlan({ shop, productCount, billing }) {
-  const ctx = await getBillingContext({ shop, billing });
+export async function reserveIfFreePlan({ shop, productCount }) {
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
-
-  if (ctx.isPro) {
-    return { ok: true, planKey: ctx.planKey, mode: ctx.mode, free: ctx.free };
-  }
+  const usage = await getFreeUsageMonthly(shop, freeLimit);
 
   const reservation = await reserveFreeUsageMonthly(shop, productCount, freeLimit);
   return {
     ok: reservation.ok,
     code: reservation.code,
-    planKey: ctx.planKey,
-    mode: ctx.mode,
-    free: reservation,
+    planKey: "free",
+    mode: "shopify",
+    free: reservation.ok ? reservation : usage,
   };
 }
 
