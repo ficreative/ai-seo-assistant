@@ -1,6 +1,6 @@
 // app/routes/app.billing.jsx
 import { useEffect, useMemo } from "react";
-import { useFetcher, useLoaderData, redirect } from "react-router";
+import { useFetcher, useLoaderData } from "react-router";
 import {
   Page,
   Layout,
@@ -22,27 +22,12 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-function serializeError(e) {
-  if (!e) return { message: "Unknown error" };
-  if (e instanceof Error) {
-    return {
-      name: e.name,
-      message: e.message,
-      stack: e.stack,
-      cause: e.cause,
-      // bazı Shopify BillingError’larda response olabilir
-      response: e.response,
-    };
-  }
-  return { message: String(e) };
-}
-
 export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { getBillingContext } = await import("../billing.gating.server.js");
 
-  const { session, billing } = await authenticate.admin(request);
-  const ctx = await getBillingContext({ shop: session.shop, billing });
+  const { session, admin } = await authenticate.admin(request);
+  const ctx = await getBillingContext({ shop: session.shop, admin });
 
   return jsonResponse({
     shop: session.shop,
@@ -57,89 +42,80 @@ export const loader = async ({ request }) => {
 
 export const action = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
-  const { getBillingContext, MONTHLY_PLAN, ANNUAL_PLAN, isTestBilling } =
-    await import("../billing.gating.server.js");
+  const {
+    getBillingContext,
+    MONTHLY_PLAN,
+    ANNUAL_PLAN,
+    isTestBilling,
+    requestSubscription,
+    cancelSubscription,
+    resetFreeUsage,
+  } = await import("../billing.gating.server.js");
 
-  const { session, billing } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
   const url = new URL(request.url);
-
-  // ✅ returnUrl: SADECE gerekli parametreler (shop + host + embedded=1)
-  const shop = url.searchParams.get("shop") || session.shop || "";
-  const host = url.searchParams.get("host") || "";
-  const origin = process.env.SHOPIFY_APP_URL || url.origin;
-  const returnUrl = `${origin}/app/billing?shop=${encodeURIComponent(
-    shop
-  )}&host=${encodeURIComponent(host)}&embedded=1`;
+  const baseUrl = process.env.SHOPIFY_APP_URL || url.origin;
+  const returnUrl = `${baseUrl}/app/billing?${url.searchParams.toString()}`;
 
   try {
     if (intent === "subscribe_monthly") {
-      const confirmationUrl = await billing.request({
+      const confirmationUrl = await requestSubscription({
+        admin,
         plan: MONTHLY_PLAN,
-        isTest: isTestBilling(),
         returnUrl,
+        test: isTestBilling(),
       });
-      return redirect(confirmationUrl);
+      return Response.redirect(confirmationUrl, 302);
     }
 
     if (intent === "subscribe_annual") {
-      const confirmationUrl = await billing.request({
+      const confirmationUrl = await requestSubscription({
+        admin,
         plan: ANNUAL_PLAN,
-        isTest: isTestBilling(),
         returnUrl,
+        test: isTestBilling(),
       });
-      return redirect(confirmationUrl);
+      return Response.redirect(confirmationUrl, 302);
     }
 
     if (intent === "cancel") {
-      const ctx = await getBillingContext({ shop: session.shop, billing });
+      const ctx = await getBillingContext({ shop: session.shop, admin });
       const sub = ctx.activeSubscription;
-
       if (!sub?.id) {
-        return jsonResponse({ ok: false, error: "No active subscription found." }, 200);
+        return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
       }
 
-      await billing.cancel({
+      await cancelSubscription({
+        admin,
         subscriptionId: sub.id,
-        isTest: isTestBilling(),
         prorate: true,
       });
 
-      return jsonResponse({ ok: true }, 200);
+      return jsonResponse({ ok: true });
     }
 
     if (intent === "reset_usage") {
       if (process.env.NODE_ENV === "production") {
-        return jsonResponse({ ok: false, error: "Not allowed in production" }, 200);
+        return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
       }
-      const { resetFreeUsage } = await import("../billing.gating.server.js");
       await resetFreeUsage({ shop: session.shop });
-      return jsonResponse({ ok: true }, 200);
+      return jsonResponse({ ok: true });
     }
 
-    return jsonResponse({ ok: false, error: "Unknown intent" }, 200);
+    return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // redirect Response gelirse direkt dön
-    if (e instanceof Response) return e;
+    // ✅ IMPORTANT: log full details (this is what your logs were missing)
+    const details = e instanceof Error
+      ? { name: e.name, message: e.message, stack: e.stack }
+      : { message: String(e) };
 
-    const info = serializeError(e);
-    console.error("[BILLING] action error:", {
-      intent,
-      shop: session.shop,
-      returnUrl,
-      error: info,
-    });
+    // eslint-disable-next-line no-console
+    console.error("[BILLING] action error:", JSON.stringify(details));
 
-    // ❗Review için 500 yerine 200 dönüp UI’da gösteriyoruz
-    return jsonResponse(
-      {
-        ok: false,
-        error: info.message || "Billing error",
-      },
-      200
-    );
+    return jsonResponse({ ok: false, error: details.message || "Billing error" }, 500);
   }
 };
 
@@ -155,12 +131,9 @@ export default function Billing() {
     }
   }, [fetcher.state, fetcher.data]);
 
-  const free =
-    billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
+  const free = billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
-  const monthLabel = free.month
-    ? `Resets monthly (period: ${free.month})`
-    : "Resets monthly";
+  const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";
 
   const proActive = billing?.isPro;
 
@@ -193,9 +166,7 @@ export default function Billing() {
       <BlockStack gap="400">
         {error ? (
           <Banner tone="critical" title="Billing error">
-            <Text as="p" variant="bodyMd">
-              {error}
-            </Text>
+            <Text as="p" variant="bodyMd">{error}</Text>
           </Banner>
         ) : null}
 
@@ -205,12 +176,8 @@ export default function Billing() {
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
                   <BlockStack gap="100">
-                    <Text variant="headingMd" as="h2">
-                      Free Plan
-                    </Text>
-                    <Text as="p" variant="bodySm" tone="subdued">
-                      For trying the app
-                    </Text>
+                    <Text variant="headingMd" as="h2">Free Plan</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">For trying the app</Text>
                   </BlockStack>
                   <Badge tone={!proActive ? "success" : undefined}>
                     {!proActive ? "Current" : "Available"}
@@ -220,27 +187,17 @@ export default function Billing() {
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="p" variant="bodyMd">
-                    <b>Monthly limit:</b> {free.limit} products
-                  </Text>
-                  <Text as="p" variant="bodyMd">
-                    <b>Usage:</b> {usageText}
-                  </Text>
-                  <Text as="p" variant="bodySm" tone="subdued">
-                    {monthLabel}
-                  </Text>
+                  <Text as="p" variant="bodyMd"><b>Monthly limit:</b> {free.limit} products</Text>
+                  <Text as="p" variant="bodyMd"><b>Usage:</b> {usageText}</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">{monthLabel}</Text>
                 </BlockStack>
 
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="h3" variant="headingSm">
-                    Features
-                  </Text>
+                  <Text as="h3" variant="headingSm">Features</Text>
                   <List>
-                    {freeFeatures.map((f) => (
-                      <List.Item key={f}>{f}</List.Item>
-                    ))}
+                    {freeFeatures.map((f) => <List.Item key={f}>{f}</List.Item>)}
                   </List>
                 </BlockStack>
 
@@ -248,9 +205,7 @@ export default function Billing() {
 
                 <fetcher.Form method="post">
                   <input type="hidden" name="intent" value="reset_usage" />
-                  <Button tone="critical" variant="secondary">
-                    Reset usage (dev)
-                  </Button>
+                  <Button tone="critical" variant="secondary">Reset usage (dev)</Button>
                 </fetcher.Form>
               </BlockStack>
             </Card>
@@ -261,12 +216,8 @@ export default function Billing() {
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
                   <BlockStack gap="100">
-                    <Text variant="headingMd" as="h2">
-                      Pro Plan
-                    </Text>
-                    <Text as="p" variant="bodySm" tone="subdued">
-                      Unlimited + advanced tools
-                    </Text>
+                    <Text variant="headingMd" as="h2">Pro Plan</Text>
+                    <Text as="p" variant="bodySm" tone="subdued">Unlimited + advanced tools</Text>
                   </BlockStack>
                   <Badge tone={proActive ? "success" : undefined}>
                     {proActive ? "Active" : "Upgrade"}
@@ -276,24 +227,16 @@ export default function Billing() {
                 <Divider />
 
                 <BlockStack gap="200">
-                  <Text as="p" variant="bodyMd">
-                    <b>Monthly:</b> $19.90 / month
-                  </Text>
-                  <Text as="p" variant="bodyMd">
-                    <b>Annual:</b> $200 / year
-                  </Text>
+                  <Text as="p" variant="bodyMd"><b>Monthly:</b> $19.90 / month</Text>
+                  <Text as="p" variant="bodyMd"><b>Annual:</b> $200 / year</Text>
                 </BlockStack>
 
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="h3" variant="headingSm">
-                    Features
-                  </Text>
+                  <Text as="h3" variant="headingSm">Features</Text>
                   <List>
-                    {proFeatures.map((f) => (
-                      <List.Item key={f}>{f}</List.Item>
-                    ))}
+                    {proFeatures.map((f) => <List.Item key={f}>{f}</List.Item>)}
                   </List>
                 </BlockStack>
 
@@ -303,24 +246,18 @@ export default function Billing() {
                   <InlineStack gap="200">
                     <fetcher.Form method="post">
                       <input type="hidden" name="intent" value="subscribe_monthly" />
-                      <Button submit variant="primary">
-                        Start Monthly
-                      </Button>
+                      <Button submit variant="primary">Start Monthly</Button>
                     </fetcher.Form>
 
                     <fetcher.Form method="post">
                       <input type="hidden" name="intent" value="subscribe_annual" />
-                      <Button submit variant="secondary">
-                        Start Annual
-                      </Button>
+                      <Button submit variant="secondary">Start Annual</Button>
                     </fetcher.Form>
                   </InlineStack>
                 ) : (
                   <fetcher.Form method="post">
                     <input type="hidden" name="intent" value="cancel" />
-                    <Button submit tone="critical">
-                      Cancel subscription
-                    </Button>
+                    <Button submit tone="critical">Cancel subscription</Button>
                   </fetcher.Form>
                 )}
               </BlockStack>
