@@ -22,6 +22,21 @@ function jsonResponse(data, status = 200) {
   });
 }
 
+function safeErr(e) {
+  const out = {
+    name: e?.name,
+    message: e?.message,
+    stack: e?.stack,
+    cause: e?.cause,
+  };
+
+  // Shopify libs bazen extra alan koyuyor
+  if (e?.response) out.response = e.response;
+  if (e?.errors) out.errors = e.errors;
+
+  return out;
+}
+
 export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { getBillingContext } = await import("../billing.gating.server.js");
@@ -36,8 +51,6 @@ export const loader = async ({ request }) => {
       isPro: ctx.isPro,
       mode: ctx.mode,
       free: ctx.free,
-      billingReady: ctx.billingReady,
-      activeSubscription: ctx.activeSubscription,
     },
   });
 };
@@ -52,12 +65,10 @@ export const action = async ({ request }) => {
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
+  // returnUrl: aynı host/shop/embedded paramlarını koru, sadece path’i billing yap
   const url = new URL(request.url);
-  const returnUrl = `${process.env.SHOPIFY_APP_URL || url.origin}/app/billing?${url.searchParams.toString()}`;
-
-  if (!billing) {
-    return jsonResponse({ ok: false, error: "Billing is not available (billing object is missing)." }, 500);
-  }
+  url.pathname = "/app/billing";
+  const returnUrl = url.toString();
 
   try {
     if (intent === "subscribe_monthly") {
@@ -104,12 +115,14 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // billing.request çoğu zaman redirect Response döndürür / fırlatır
+    // billing.request çoğu zaman redirect Response döndürür
     if (e instanceof Response) return e;
 
+    // ✅ Burada artık gerçek detay logluyoruz (Cloud Run stderr’de görünecek)
+    // eslint-disable-next-line no-console
+    console.error("[BILLING] action error:", JSON.stringify(safeErr(e), null, 2));
+
     const msg = e instanceof Error ? e.message : String(e);
-    // Loglarda daha net görmek için:
-    console.error("[BILLING] action error:", e);
     return jsonResponse({ ok: false, error: msg }, 500);
   }
 };
@@ -117,8 +130,7 @@ export const action = async ({ request }) => {
 export default function Billing() {
   const { billing } = useLoaderData();
   const fetcher = useFetcher();
-
-  const actionError = fetcher.data?.ok === false ? fetcher.data?.error : null;
+  const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.ok) {
@@ -158,17 +170,9 @@ export default function Billing() {
   return (
     <Page title="Billing">
       <BlockStack gap="400">
-        {!billing?.billingReady ? (
-          <Banner tone="critical" title="Billing is not configured yet">
-            <Text as="p" variant="bodyMd">
-              Billing object is missing or billing.check is unavailable. Check your production billing setup and env vars.
-            </Text>
-          </Banner>
-        ) : null}
-
-        {actionError ? (
+        {error ? (
           <Banner tone="critical" title="Billing error">
-            <Text as="p" variant="bodyMd">{actionError}</Text>
+            <Text as="p" variant="bodyMd">{error}</Text>
           </Banner>
         ) : null}
 
