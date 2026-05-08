@@ -36,42 +36,47 @@ export const loader = async ({ request }) => {
       isPro: ctx.isPro,
       mode: ctx.mode,
       free: ctx.free,
+      activeSubscription: ctx.activeSubscription || null,
     },
   });
 };
 
 export const action = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
-  const { getBillingContext, MONTHLY_PLAN, ANNUAL_PLAN, isTestBilling } =
-    await import("../billing.gating.server.js");
+  const {
+    getBillingContext,
+    MONTHLY_PLAN,
+    ANNUAL_PLAN,
+    isTestBilling,
+  } = await import("../billing.gating.server.js");
 
   const { session, billing } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
   const url = new URL(request.url);
-  const returnUrl = `${process.env.SHOPIFY_APP_URL || url.origin}/app/billing?${url.searchParams.toString()}`;
+  const base = process.env.SHOPIFY_APP_URL || url.origin;
+  const returnUrl = `${base}/app/billing?${url.searchParams.toString()}`;
+  const testFlag = isTestBilling();
 
   try {
-    if (!billing) {
-      return jsonResponse(
-        { ok: false, error: "Billing object is missing. Check shopify.server.js billing config & redeploy." },
-        500
-      );
-    }
-
     if (intent === "subscribe_monthly") {
+      // ✅ burada plan string kesin dolu olmalı
+      if (!MONTHLY_PLAN) return jsonResponse({ ok: false, error: "MONTHLY_PLAN is missing" }, 500);
+
       return await billing.request({
         plan: MONTHLY_PLAN,
-        isTest: isTestBilling(),
+        isTest: testFlag,
         returnUrl,
       });
     }
 
     if (intent === "subscribe_annual") {
+      if (!ANNUAL_PLAN) return jsonResponse({ ok: false, error: "ANNUAL_PLAN is missing" }, 500);
+
       return await billing.request({
         plan: ANNUAL_PLAN,
-        isTest: isTestBilling(),
+        isTest: testFlag,
         returnUrl,
       });
     }
@@ -86,7 +91,7 @@ export const action = async ({ request }) => {
 
       await billing.cancel({
         subscriptionId: sub.id,
-        isTest: isTestBilling(),
+        isTest: testFlag,
         prorate: true,
       });
 
@@ -104,17 +109,20 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // ✅ Shopify billing helpers sometimes throw/return Response
-    if (e instanceof Response) return e;
-
-    // ✅ BURASI KRİTİK: Cloud Run log'a gerçek sebebi basıyoruz
-    console.error("[BILLING] action error:", {
+    // ✅ EN KRİTİK: BillingError detayını Cloud Run loglarına bas
+    console.error("[BILLING] action error", {
+      shop: session.shop,
       intent,
-      shop: session?.shop,
-      message: e?.message,
-      stack: e?.stack,
-      raw: e,
+      isTest: testFlag,
+      returnUrl,
+      message: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+      cause: e?.cause,
+      response: e?.response,
     });
+
+    // billing.request bazen Response döndürür/fırlatır (redirect)
+    if (e instanceof Response) return e;
 
     const msg = e instanceof Error ? e.message : String(e);
     return jsonResponse({ ok: false, error: msg }, 500);
