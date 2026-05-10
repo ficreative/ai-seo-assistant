@@ -25,46 +25,25 @@ const shopify = shopifyApp({
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  // ✅ REAL BILLING CONFIG (Shopify Billing API)
+  // ✅ Billing config (kalabilir; ama artık request/check helper’ı kullanmıyoruz)
   billing: {
     [MONTHLY_PLAN]: {
       lineItems: [
-        {
-          amount: 19.9,
-          currencyCode: "USD",
-          interval: BillingInterval.Every30Days,
-        },
+        { amount: 19.9, currencyCode: "USD", interval: BillingInterval.Every30Days },
       ],
     },
     [ANNUAL_PLAN]: {
-      lineItems: [
-        {
-          amount: 200,
-          currencyCode: "USD",
-          interval: BillingInterval.Annual,
-        },
-      ],
+      lineItems: [{ amount: 200, currencyCode: "USD", interval: BillingInterval.Annual }],
     },
   },
 
   webhooks: {
-    CUSTOMERS_DATA_REQUEST: {
-      deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/customers/data_request",
-    },
-    CUSTOMERS_REDACT: {
-      deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/customers/redact",
-    },
-    SHOP_REDACT: {
-      deliveryMethod: DeliveryMethod.Http,
-      callbackUrl: "/webhooks/shop/redact",
-    },
+    CUSTOMERS_DATA_REQUEST: { deliveryMethod: DeliveryMethod.Http, callbackUrl: "/webhooks/customers/data_request" },
+    CUSTOMERS_REDACT: { deliveryMethod: DeliveryMethod.Http, callbackUrl: "/webhooks/customers/redact" },
+    SHOP_REDACT: { deliveryMethod: DeliveryMethod.Http, callbackUrl: "/webhooks/shop/redact" },
   },
 
-  future: {
-    expiringOfflineAccessTokens: true,
-  },
+  future: { expiringOfflineAccessTokens: true },
 
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }

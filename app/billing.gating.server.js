@@ -1,4 +1,3 @@
-// app/billing.gating.server.js
 import { BILLING_PLANS } from "./billing.plans.js";
 import {
   getFreeUsageMonthly,
@@ -7,7 +6,6 @@ import {
 } from "./billing.usage.server.js";
 
 import { MONTHLY_PLAN, ANNUAL_PLAN } from "./shopify.server.js";
-
 export { MONTHLY_PLAN, ANNUAL_PLAN };
 
 export function isTestBilling() {
@@ -15,82 +13,70 @@ export function isTestBilling() {
 }
 
 /**
- * ✅ Tek standart:
- * getBillingContext({ shop, billing })
- * - billing: authenticate.admin(request) dönüşünden gelen billing objesi
+ * ✅ getBillingContext({ shop, admin })
+ * admin: authenticate.admin(request) içinden gelen admin client
  */
-export async function getBillingContext({ shop, billing }) {
+export async function getBillingContext({ shop, admin }) {
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
   const usage = await getFreeUsageMonthly(shop, freeLimit);
 
-  // Billing objesi yoksa crash etme — Free plan varsay
-  if (!billing) {
+  if (!admin) {
     return {
       planKey: "free",
       isPro: false,
-      mode: "no_billing_object",
+      mode: "no_admin",
       activeSubscription: null,
-      free: {
-        monthlyLimit: freeLimit,
-        ...usage,
-      },
+      free: { monthlyLimit: freeLimit, ...usage },
       plans: BILLING_PLANS,
     };
   }
 
-  const isTest = isTestBilling();
+  // Active subscriptions çek
+  const query = `#graphql
+    query ActiveSubs {
+      currentAppInstallation {
+        activeSubscriptions {
+          id
+          name
+          status
+          test
+        }
+      }
+    }
+  `;
 
-  // Shopify billing check
-  // Not: check result shape kütüphaneye göre değişebilir -> defensif okuyoruz.
-  const checkRes = await billing.check({
-    plans: [MONTHLY_PLAN, ANNUAL_PLAN],
-    isTest,
-  });
+  const resp = await admin.graphql(query);
+  const json = await resp.json();
 
-  const hasActive =
-    Boolean(checkRes?.hasActivePayment) ||
-    Boolean(checkRes?.hasPayment) ||
-    (Array.isArray(checkRes?.subscriptions) && checkRes.subscriptions.length > 0);
+  const subs = json?.data?.currentAppInstallation?.activeSubscriptions || [];
 
-  const activeSubscription =
-    (Array.isArray(checkRes?.subscriptions) && checkRes.subscriptions[0]) ||
-    null;
+  // Pro saymak için: adı planlarımızdan biri + status ACTIVE
+  const active = subs.find(
+    (s) =>
+      (s?.name === MONTHLY_PLAN || s?.name === ANNUAL_PLAN) &&
+      String(s?.status || "").toUpperCase() === "ACTIVE"
+  );
 
-  // Hangi plan? (subscriptions[0].name veya plan handle)
-  const activePlanName =
-    activeSubscription?.name ||
-    activeSubscription?.plan ||
-    activeSubscription?.lineItems?.[0]?.plan?.name ||
-    null;
-
-  const isPro = Boolean(hasActive);
-  const planKey = isPro ? String(activePlanName || "pro") : "free";
+  const isPro = Boolean(active);
+  const planKey = active?.name || "free";
 
   return {
     planKey,
     isPro,
-    mode: "shopify",
-    activeSubscription,
-    free: {
-      monthlyLimit: freeLimit,
-      ...usage,
-    },
+    mode: "shopify_graphql",
+    activeSubscription: active || null,
+    free: { monthlyLimit: freeLimit, ...usage },
     plans: BILLING_PLANS,
-    rawCheck: checkRes,
+    raw: { subs },
   };
 }
 
-export async function reserveIfFreePlan({ shop, productCount, billing }) {
-  const ctx = await getBillingContext({ shop, billing });
+export async function reserveIfFreePlan({ shop, productCount, admin }) {
+  const ctx = await getBillingContext({ shop, admin });
   const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
 
   if (ctx.isPro) {
-    return {
-      ok: true,
-      planKey: ctx.planKey,
-      mode: ctx.mode,
-      free: ctx.free,
-    };
+    return { ok: true, planKey: ctx.planKey, mode: ctx.mode, free: ctx.free };
   }
 
   const reservation = await reserveFreeUsageMonthly(shop, productCount, freeLimit);

@@ -1,4 +1,3 @@
-// app/routes/app.billing.jsx
 import { useEffect, useMemo } from "react";
 import { useFetcher, useLoaderData } from "react-router";
 import {
@@ -26,8 +25,8 @@ export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { getBillingContext } = await import("../billing.gating.server.js");
 
-  const { session, billing } = await authenticate.admin(request);
-  const ctx = await getBillingContext({ shop: session.shop, billing });
+  const { session, admin } = await authenticate.admin(request);
+  const ctx = await getBillingContext({ shop: session.shop, admin });
 
   return jsonResponse({
     shop: session.shop,
@@ -44,61 +43,114 @@ export const action = async ({ request }) => {
   const { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } = await import("../shopify.server.js");
   const { getBillingContext, isTestBilling } = await import("../billing.gating.server.js");
 
-  const { session, billing } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
+
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
-  // returnUrl: SHOPIFY_APP_URL + aynı query (host/shop/embedded)
   const url = new URL(request.url);
   const base = process.env.SHOPIFY_APP_URL || url.origin;
 
   const returnUrlObj = new URL(`${base}/app/billing`);
-  // mevcut query paramları taşı
   for (const [k, v] of url.searchParams.entries()) returnUrlObj.searchParams.set(k, v);
-  // güvene al
   returnUrlObj.searchParams.set("shop", session.shop);
   returnUrlObj.searchParams.set("embedded", "1");
-
   const returnUrl = returnUrlObj.toString();
 
   try {
-    if (!billing) {
-      return jsonResponse(
-        { ok: false, error: "Billing object missing from authenticate.admin(request)." },
-        500
-      );
+    if (!admin) {
+      return jsonResponse({ ok: false, error: "Admin client missing." }, 500);
     }
 
-    if (intent === "subscribe_monthly") {
-      return await billing.request({
-        plan: MONTHLY_PLAN,
-        isTest: isTestBilling(),
-        returnUrl,
-      });
-    }
+    const test = isTestBilling();
 
-    if (intent === "subscribe_annual") {
-      return await billing.request({
-        plan: ANNUAL_PLAN,
-        isTest: isTestBilling(),
+    if (intent === "subscribe_monthly" || intent === "subscribe_annual") {
+      const planName = intent === "subscribe_monthly" ? MONTHLY_PLAN : ANNUAL_PLAN;
+      const interval = intent === "subscribe_monthly" ? "EVERY_30_DAYS" : "ANNUAL";
+      const amount = intent === "subscribe_monthly" ? 19.9 : 200;
+
+      const mutation = `#graphql
+        mutation CreateSub(
+          $name: String!
+          $returnUrl: URL!
+          $test: Boolean!
+          $lineItems: [AppSubscriptionLineItemInput!]!
+        ) {
+          appSubscriptionCreate(
+            name: $name
+            returnUrl: $returnUrl
+            test: $test
+            lineItems: $lineItems
+          ) {
+            confirmationUrl
+            userErrors { field message }
+            appSubscription { id name status }
+          }
+        }
+      `;
+
+      const variables = {
+        name: planName,
         returnUrl,
-      });
+        test,
+        lineItems: [
+          {
+            plan: {
+              appRecurringPricingDetails: {
+                interval,
+                price: { amount, currencyCode: "USD" },
+              },
+            },
+          },
+        ],
+      };
+
+      const resp = await admin.graphql(mutation, { variables });
+      const json = await resp.json();
+
+      const payload = json?.data?.appSubscriptionCreate;
+      const userErrors = payload?.userErrors || [];
+
+      if (userErrors.length) {
+        console.error("[BILLING] appSubscriptionCreate userErrors:", userErrors);
+        return jsonResponse({ ok: false, error: userErrors.map((u) => u.message).join(" | ") }, 400);
+      }
+
+      const confirmationUrl = payload?.confirmationUrl;
+      if (!confirmationUrl) {
+        console.error("[BILLING] Missing confirmationUrl. Full response:", json);
+        return jsonResponse({ ok: false, error: "Missing confirmationUrl from Shopify." }, 500);
+      }
+
+      return Response.redirect(confirmationUrl, 302);
     }
 
     if (intent === "cancel") {
-      const ctx = await getBillingContext({ shop: session.shop, billing });
+      const ctx = await getBillingContext({ shop: session.shop, admin });
       const sub = ctx.activeSubscription;
 
-      const subId = sub?.id || sub?.subscriptionId;
-      if (!subId) {
+      if (!sub?.id) {
         return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
       }
 
-      await billing.cancel({
-        subscriptionId: subId,
-        isTest: isTestBilling(),
-        prorate: true,
-      });
+      const mutation = `#graphql
+        mutation CancelSub($id: ID!, $prorate: Boolean) {
+          appSubscriptionCancel(id: $id, prorate: $prorate) {
+            userErrors { field message }
+            appSubscription { id status }
+          }
+        }
+      `;
+
+      const resp = await admin.graphql(mutation, { variables: { id: sub.id, prorate: true } });
+      const json = await resp.json();
+
+      const payload = json?.data?.appSubscriptionCancel;
+      const userErrors = payload?.userErrors || [];
+      if (userErrors.length) {
+        console.error("[BILLING] appSubscriptionCancel userErrors:", userErrors);
+        return jsonResponse({ ok: false, error: userErrors.map((u) => u.message).join(" | ") }, 400);
+      }
 
       return jsonResponse({ ok: true });
     }
@@ -114,23 +166,13 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // ✅ Shopify billing lib çoğu zaman Response döndürür/fırlatır (redirect)
-    if (e instanceof Response) return e;
-
-    // ✅ Detaylı log: artık gerçek sebebi göreceğiz
     const err = e instanceof Error ? e : new Error(String(e));
-    const extra = {
+    console.error("[BILLING] action error:", {
       name: err.name,
       message: err.message,
-      // bazı billing error’larda bunlar bulunuyor:
       cause: err.cause,
-      response: err.response,
-    };
-    // eslint-disable-next-line no-console
-    console.error("[BILLING] action error:", extra);
-    // eslint-disable-next-line no-console
+    });
     console.error("[BILLING] action error stack:", err.stack);
-
     return jsonResponse({ ok: false, error: err.message }, 500);
   }
 };
