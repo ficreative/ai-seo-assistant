@@ -60,8 +60,9 @@ export const action = async ({ request }) => {
 
   const url = new URL(request.url);
   const base = process.env.SHOPIFY_APP_URL || url.origin;
-  const returnUrl = new URL("/app/billing", base);
-  returnUrl.search = url.searchParams.toString();
+
+  // ✅ Shopify returnUrl max 255 → asla dev querystring ekleme
+  const returnUrl = new URL("/app/billing", base).toString();
 
   try {
     if (!admin) {
@@ -85,8 +86,8 @@ export const action = async ({ request }) => {
       `;
 
       const variables = {
-        name: planKey, // ✅ name burada “pro_monthly / pro_annual” olacak
-        returnUrl: returnUrl.toString(),
+        name: planKey,
+        returnUrl, // ✅ string
         test: isTestBilling(),
         lineItems: [
           {
