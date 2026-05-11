@@ -1,9 +1,6 @@
 // app/routes/app.billing.jsx
 import { useEffect, useMemo } from "react";
 import { useFetcher, useLoaderData } from "react-router";
-import { useAppBridge } from "@shopify/app-bridge-react";
-import { Redirect } from "@shopify/app-bridge/actions";
-
 import {
   Page,
   Layout,
@@ -87,7 +84,6 @@ export const action = async ({ request }) => {
   });
 
   try {
-    // ✅ SUBSCRIBE: redirect URL’i JSON olarak döndür (iframe içinde AppBridge ile yönlendireceğiz)
     if (intent === "subscribe_monthly" || intent === "subscribe_annual") {
       const plan = intent === "subscribe_monthly" ? MONTHLY_PLAN : ANNUAL_PLAN;
 
@@ -97,30 +93,21 @@ export const action = async ({ request }) => {
         returnUrl,
       });
 
-      // billing.request bazen Response döndürür (302 + Location)
+      // billing.request çoğu zaman Response döndürür: 302 + Location
       if (resp instanceof Response) {
-        const loc = resp.headers.get("Location");
+        const loc = resp.headers.get("Location") || resp.headers.get("location");
         if (loc) return jsonResponse({ ok: true, redirectUrl: loc });
 
-        // Location yoksa — debug için status/headers dönelim
         return jsonResponse(
-          {
-            ok: false,
-            error: "Billing redirect response has no Location header.",
-            status: resp.status,
-          },
+          { ok: false, error: "Billing response had no Location header.", status: resp.status },
           500
         );
       }
 
-      // bazı implementasyonlar {confirmationUrl} benzeri döndürebiliyor
       const redirectUrl = resp?.confirmationUrl || resp?.redirectUrl || resp?.url;
       if (redirectUrl) return jsonResponse({ ok: true, redirectUrl });
 
-      return jsonResponse(
-        { ok: false, error: "Billing request returned no redirect URL." },
-        500
-      );
+      return jsonResponse({ ok: false, error: "Billing request returned no redirect URL." }, 500);
     }
 
     if (intent === "cancel") {
@@ -151,23 +138,14 @@ export const action = async ({ request }) => {
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-
-    console.error("[BILLING] action error:", {
-      name: e?.name,
-      message: msg,
-      cause: e?.cause,
-      response: e?.response,
-    });
+    console.error("[BILLING] action error:", { name: e?.name, message: msg });
     if (e?.stack) console.error("[BILLING] action error stack:", e.stack);
-
     return jsonResponse({ ok: false, error: msg }, 500);
   }
 };
 
 export default function Billing() {
   const { billing } = useLoaderData();
-  const app = useAppBridge();
-
   const subscribeFetcher = useFetcher();
   const cancelFetcher = useFetcher();
   const resetFetcher = useFetcher();
@@ -178,25 +156,24 @@ export default function Billing() {
     (resetFetcher.data?.ok === false && resetFetcher.data?.error) ||
     null;
 
-  // ✅ Redirect URL gelince AppBridge ile TOP-LEVEL yönlendir
+  // ✅ Redirect URL gelince top-level aç
   useEffect(() => {
     const redirectUrl = subscribeFetcher.data?.redirectUrl;
     if (!redirectUrl) return;
 
-    const redirect = Redirect.create(app);
-    redirect.dispatch(Redirect.Action.REMOTE, redirectUrl);
-  }, [subscribeFetcher.data, app]);
+    try {
+      window.open(redirectUrl, "_top");
+    } catch {
+      window.location.href = redirectUrl;
+    }
+  }, [subscribeFetcher.data]);
 
   useEffect(() => {
-    if (cancelFetcher.state === "idle" && cancelFetcher.data?.ok) {
-      window.location.reload();
-    }
+    if (cancelFetcher.state === "idle" && cancelFetcher.data?.ok) window.location.reload();
   }, [cancelFetcher.state, cancelFetcher.data]);
 
   useEffect(() => {
-    if (resetFetcher.state === "idle" && resetFetcher.data?.ok) {
-      window.location.reload();
-    }
+    if (resetFetcher.state === "idle" && resetFetcher.data?.ok) window.location.reload();
   }, [resetFetcher.state, resetFetcher.data]);
 
   const free = billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
@@ -318,10 +295,7 @@ export default function Billing() {
                       variant="primary"
                       loading={subscribeFetcher.state !== "idle"}
                       onClick={() =>
-                        subscribeFetcher.submit(
-                          { intent: "subscribe_monthly" },
-                          { method: "post" }
-                        )
+                        subscribeFetcher.submit({ intent: "subscribe_monthly" }, { method: "post" })
                       }
                     >
                       Start Monthly
@@ -331,10 +305,7 @@ export default function Billing() {
                       variant="secondary"
                       loading={subscribeFetcher.state !== "idle"}
                       onClick={() =>
-                        subscribeFetcher.submit(
-                          { intent: "subscribe_annual" },
-                          { method: "post" }
-                        )
+                        subscribeFetcher.submit({ intent: "subscribe_annual" }, { method: "post" })
                       }
                     >
                       Start Annual
