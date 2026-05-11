@@ -1,3 +1,4 @@
+// app/routes/app.billing.jsx
 import { useEffect, useMemo } from "react";
 import { useFetcher, useLoaderData } from "react-router";
 import {
@@ -25,8 +26,8 @@ export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { getBillingContext } = await import("../billing.gating.server.js");
 
-  const { session, admin } = await authenticate.admin(request);
-  const ctx = await getBillingContext({ shop: session.shop, admin });
+  const { session, billing } = await authenticate.admin(request);
+  const ctx = await getBillingContext({ shop: session.shop, billing });
 
   return jsonResponse({
     shop: session.shop,
@@ -39,118 +40,89 @@ export const loader = async ({ request }) => {
   });
 };
 
+async function requestPlanAndReturnUrl({ billing, plan, isTest, returnUrl }) {
+  const res = await billing.request({ plan, isTest, returnUrl });
+
+  // Bazı sürümlerde Response döner (redirect)
+  if (res instanceof Response) {
+    const location = res.headers.get("location") || res.headers.get("Location");
+    if (location) {
+      return { confirmationUrl: location };
+    }
+    // Location yoksa aynen dön
+    return { response: res };
+  }
+
+  // Bazı sürümlerde obje dönebilir
+  if (res && typeof res === "object" && res.confirmationUrl) {
+    return { confirmationUrl: res.confirmationUrl };
+  }
+
+  return { error: "No confirmation URL returned from billing.request()" };
+}
+
 export const action = async ({ request }) => {
-  const { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } = await import("../shopify.server.js");
-  const { getBillingContext, isTestBilling } = await import("../billing.gating.server.js");
+  const { authenticate } = await import("../shopify.server.js");
+  const { getBillingContext, MONTHLY_PLAN, ANNUAL_PLAN, isTestBilling } = await import(
+    "../billing.gating.server.js"
+  );
 
-  const { session, admin } = await authenticate.admin(request);
-
+  const { session, billing } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
   const url = new URL(request.url);
-  const base = process.env.SHOPIFY_APP_URL || url.origin;
 
-  const returnUrlObj = new URL(`${base}/app/billing`);
-  for (const [k, v] of url.searchParams.entries()) returnUrlObj.searchParams.set(k, v);
-  returnUrlObj.searchParams.set("shop", session.shop);
-  returnUrlObj.searchParams.set("embedded", "1");
-  const returnUrl = returnUrlObj.toString();
+  // Return URL mutlaka app domaininde olmalı
+  const baseUrl = process.env.SHOPIFY_APP_URL || url.origin;
+  const returnUrl = `${baseUrl}/app/billing?${url.searchParams.toString()}`;
 
   try {
-    if (!admin) {
-      return jsonResponse({ ok: false, error: "Admin client missing." }, 500);
+    if (intent === "subscribe_monthly") {
+      const out = await requestPlanAndReturnUrl({
+        billing,
+        plan: MONTHLY_PLAN,
+        isTest: isTestBilling(),
+        returnUrl,
+      });
+
+      if (out.confirmationUrl) {
+        return jsonResponse({ ok: true, confirmationUrl: out.confirmationUrl });
+      }
+      if (out.response instanceof Response) return out.response;
+
+      return jsonResponse({ ok: false, error: out.error || "Billing request failed" }, 500);
     }
 
-    const test = isTestBilling();
-
-    if (intent === "subscribe_monthly" || intent === "subscribe_annual") {
-      const planName = intent === "subscribe_monthly" ? MONTHLY_PLAN : ANNUAL_PLAN;
-      const interval = intent === "subscribe_monthly" ? "EVERY_30_DAYS" : "ANNUAL";
-      const amount = intent === "subscribe_monthly" ? 19.9 : 200;
-
-      const mutation = `#graphql
-        mutation CreateSub(
-          $name: String!
-          $returnUrl: URL!
-          $test: Boolean!
-          $lineItems: [AppSubscriptionLineItemInput!]!
-        ) {
-          appSubscriptionCreate(
-            name: $name
-            returnUrl: $returnUrl
-            test: $test
-            lineItems: $lineItems
-          ) {
-            confirmationUrl
-            userErrors { field message }
-            appSubscription { id name status }
-          }
-        }
-      `;
-
-      const variables = {
-        name: planName,
+    if (intent === "subscribe_annual") {
+      const out = await requestPlanAndReturnUrl({
+        billing,
+        plan: ANNUAL_PLAN,
+        isTest: isTestBilling(),
         returnUrl,
-        test,
-        lineItems: [
-          {
-            plan: {
-              appRecurringPricingDetails: {
-                interval,
-                price: { amount, currencyCode: "USD" },
-              },
-            },
-          },
-        ],
-      };
+      });
 
-      const resp = await admin.graphql(mutation, { variables });
-      const json = await resp.json();
-
-      const payload = json?.data?.appSubscriptionCreate;
-      const userErrors = payload?.userErrors || [];
-
-      if (userErrors.length) {
-        console.error("[BILLING] appSubscriptionCreate userErrors:", userErrors);
-        return jsonResponse({ ok: false, error: userErrors.map((u) => u.message).join(" | ") }, 400);
+      if (out.confirmationUrl) {
+        return jsonResponse({ ok: true, confirmationUrl: out.confirmationUrl });
       }
+      if (out.response instanceof Response) return out.response;
 
-      const confirmationUrl = payload?.confirmationUrl;
-      if (!confirmationUrl) {
-        console.error("[BILLING] Missing confirmationUrl. Full response:", json);
-        return jsonResponse({ ok: false, error: "Missing confirmationUrl from Shopify." }, 500);
-      }
-
-      return Response.redirect(confirmationUrl, 302);
+      return jsonResponse({ ok: false, error: out.error || "Billing request failed" }, 500);
     }
 
     if (intent === "cancel") {
-      const ctx = await getBillingContext({ shop: session.shop, admin });
+      const ctx = await getBillingContext({ shop: session.shop, billing });
       const sub = ctx.activeSubscription;
 
       if (!sub?.id) {
         return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
       }
 
-      const mutation = `#graphql
-        mutation CancelSub($id: ID!, $prorate: Boolean) {
-          appSubscriptionCancel(id: $id, prorate: $prorate) {
-            userErrors { field message }
-            appSubscription { id status }
-          }
-        }
-      `;
-
-      const resp = await admin.graphql(mutation, { variables: { id: sub.id, prorate: true } });
-      const json = await resp.json();
-
-      const payload = json?.data?.appSubscriptionCancel;
-      const userErrors = payload?.userErrors || [];
-      if (userErrors.length) {
-        console.error("[BILLING] appSubscriptionCancel userErrors:", userErrors);
-        return jsonResponse({ ok: false, error: userErrors.map((u) => u.message).join(" | ") }, 400);
-      }
+      await billing.cancel({
+        subscriptionId: sub.id,
+        isTest: isTestBilling(),
+        prorate: true,
+      });
 
       return jsonResponse({ ok: true });
     }
@@ -166,14 +138,11 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    console.error("[BILLING] action error:", {
-      name: err.name,
-      message: err.message,
-      cause: err.cause,
-    });
-    console.error("[BILLING] action error stack:", err.stack);
-    return jsonResponse({ ok: false, error: err.message }, 500);
+    // Billing lib bazen Response fırlatır
+    if (e instanceof Response) return e;
+
+    const msg = e instanceof Error ? e.message : String(e);
+    return jsonResponse({ ok: false, error: msg }, 500);
   }
 };
 
@@ -183,8 +152,22 @@ export default function Billing() {
 
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
+  // ✅ Eğer confirmationUrl geldiyse mutlaka TOP window'a yönlendir
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
+    const u = fetcher.data?.confirmationUrl;
+    if (!u) return;
+
+    try {
+      // Shopify admin içinde iframe -> top yönlendirme gerekli
+      window.top.location.href = u;
+    } catch (_e) {
+      window.location.href = u;
+    }
+  }, [fetcher.data]);
+
+  // Cancel / reset sonrası refresh
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok && !fetcher.data?.confirmationUrl) {
       window.location.reload();
     }
   }, [fetcher.state, fetcher.data]);
@@ -304,18 +287,24 @@ export default function Billing() {
                   <InlineStack gap="200">
                     <fetcher.Form method="post">
                       <input type="hidden" name="intent" value="subscribe_monthly" />
-                      <Button submit variant="primary">Start Monthly</Button>
+                      <Button submit variant="primary" loading={fetcher.state !== "idle"}>
+                        Start Monthly
+                      </Button>
                     </fetcher.Form>
 
                     <fetcher.Form method="post">
                       <input type="hidden" name="intent" value="subscribe_annual" />
-                      <Button submit variant="secondary">Start Annual</Button>
+                      <Button submit variant="secondary" loading={fetcher.state !== "idle"}>
+                        Start Annual
+                      </Button>
                     </fetcher.Form>
                   </InlineStack>
                 ) : (
                   <fetcher.Form method="post">
                     <input type="hidden" name="intent" value="cancel" />
-                    <Button submit tone="critical">Cancel subscription</Button>
+                    <Button submit tone="critical" loading={fetcher.state !== "idle"}>
+                      Cancel subscription
+                    </Button>
                   </fetcher.Form>
                 )}
               </BlockStack>
