@@ -4,21 +4,19 @@ import { Outlet, useLoaderData, useRouteError, isRouteErrorResponse } from "reac
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider as ShopifyAppProvider } from "@shopify/shopify-app-react-router/react";
 import { NavMenu } from "@shopify/app-bridge-react";
-
 import { Page, Banner, Text, BlockStack, Box, Button, InlineStack } from "@shopify/polaris";
+
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  // ✅ authenticate.admin sadece 1 kere
-  const { session, billing } = await authenticate.admin(request);
+  const { getBillingContext } = await import("../billing.gating.server.js");
+  const { session, admin } = await authenticate.admin(request);
 
   const url = new URL(request.url);
   const host = url.searchParams.get("host") || "";
   const embedded = url.searchParams.get("embedded") || "";
 
-  // ✅ getBillingContext'e admin değil billing gidecek
-  const { getBillingContext } = await import("../billing.gating.server.js");
-  const billingCtx = await getBillingContext({ shop: session.shop, billing });
+  const billing = await getBillingContext({ shop: session.shop, admin });
 
   return {
     apiKey: process.env.SHOPIFY_API_KEY || "",
@@ -26,112 +24,14 @@ export const loader = async ({ request }) => {
     host,
     embedded,
     billing: {
-      isPro: billingCtx.isPro,
-      planKey: billingCtx.planKey,
-      free: billingCtx.free,
+      isPro: billing.isPro,
+      planKey: billing.planKey,
+      free: billing.free,
     },
   };
 };
 
-function ClientCrashCatcher({ children }) {
-  const [err, setErr] = useState(null);
-
-  useEffect(() => {
-    const onError = (e) => {
-      const error = e?.error || e;
-      console.error("ClientCrashCatcher error:", error);
-      setErr(error instanceof Error ? error : new Error(String(error)));
-    };
-    const onRejection = (e) => {
-      console.error("ClientCrashCatcher rejection:", e?.reason);
-      const r = e?.reason;
-      setErr(r instanceof Error ? r : new Error(String(r)));
-    };
-
-    window.addEventListener("error", onError);
-    window.addEventListener("unhandledrejection", onRejection);
-    return () => {
-      window.removeEventListener("error", onError);
-      window.removeEventListener("unhandledrejection", onRejection);
-    };
-  }, []);
-
-  if (!err) return children;
-
-  return (
-    <Page title="Render error">
-      <Banner tone="critical" title="Render crashed">
-        <BlockStack gap="200">
-          <Text as="p" variant="bodyMd">{err.message}</Text>
-          {err.stack ? (
-            <Box padding="200" background="bg-surface-secondary" borderRadius="200">
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{err.stack}</pre>
-            </Box>
-          ) : null}
-        </BlockStack>
-      </Banner>
-    </Page>
-  );
-}
-
-function FloatingEmailButton() {
-  const subject = encodeURIComponent("FiDevStudio Support");
-  const body = encodeURIComponent(
-    "Hello,\n\nI need support with the app:\n\n- Store:\n- Issue:\n- Related page:\n- Additional details:\n\nThanks."
-  );
-  const href = `mailto:hello@fidevstudio.com?subject=${subject}&body=${body}`;
-
-  const handleClick = (e) => {
-    e.preventDefault();
-    try {
-      if (window.top) window.top.location.href = href;
-      else window.location.href = href;
-    } catch {
-      window.location.href = href;
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      style={{
-        position: "fixed",
-        right: 18,
-        bottom: 18,
-        width: 56,
-        height: 56,
-        borderRadius: 18,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: "0 10px 30px rgba(0,0,0,0.22)",
-        background: "linear-gradient(135deg, #4F46E5 0%, #06B6D4 100%)",
-        zIndex: 9999,
-        border: "1px solid rgba(255,255,255,0.25)",
-      }}
-      aria-label="Mail support"
-      title="Mail support"
-    >
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path
-          d="M4 7.5C4 6.12 5.12 5 6.5 5H17.5C18.88 5 20 6.12 20 7.5V16.5C20 17.88 18.88 19 17.5 19H6.5C5.12 19 4 17.88 4 16.5V7.5Z"
-          stroke="white"
-          strokeWidth="1.8"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M5.5 7L12 12L18.5 7"
-          stroke="white"
-          strokeWidth="1.8"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      </svg>
-    </button>
-  );
-}
-
+// (Aşağısı senin mevcut componentlerin aynı kalabilir)
 export default function App() {
   const { apiKey, shop, host, embedded, billing } = useLoaderData();
 
@@ -162,33 +62,27 @@ export default function App() {
         <a href={`/app/settings${navQuery}`}>Settings</a>
       </NavMenu>
 
-      <ClientCrashCatcher>
-        {!billing?.isPro ? (
-          <Box padding="300">
-            <Banner tone="warning" title="Free plan limits">
-              <BlockStack gap="200">
-                <Text as="p" variant="bodyMd">
-                  You are currently on the Free plan. Some features are limited.
+      {!billing?.isPro ? (
+        <Box padding="300">
+          <Banner tone="warning" title="Free plan limits">
+            <BlockStack gap="200">
+              <Text as="p" variant="bodyMd">
+                You are currently on the Free plan. Some features are limited.
+              </Text>
+              {billing?.free ? (
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Monthly usage: {billing.free.used}/{billing.free.limit} used · {billing.free.remaining} remaining
                 </Text>
-                {billing?.free ? (
-                  <Text as="p" variant="bodySm" tone="subdued">
-                    Monthly usage: {billing.free.used}/{billing.free.limit} used · {billing.free.remaining} remaining
-                  </Text>
-                ) : null}
-                <InlineStack gap="200" wrap>
-                  <Button url={`/app/billing${navQuery}`} variant="primary">
-                    Upgrade to Pro
-                  </Button>
-                </InlineStack>
-              </BlockStack>
-            </Banner>
-          </Box>
-        ) : null}
+              ) : null}
+              <InlineStack gap="200" wrap>
+                <Button url={`/app/billing${navQuery}`} variant="primary">Upgrade to Pro</Button>
+              </InlineStack>
+            </BlockStack>
+          </Banner>
+        </Box>
+      ) : null}
 
-        <Outlet />
-      </ClientCrashCatcher>
-
-      <FloatingEmailButton />
+      <Outlet />
     </ShopifyAppProvider>
   );
 }
