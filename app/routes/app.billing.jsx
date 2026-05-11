@@ -71,8 +71,12 @@ export const action = async ({ request }) => {
       // ✅ fetcher redirect takip etmez → Location'ı JSON olarak dön
       if (resp instanceof Response) {
         const redirectUrl = resp.headers.get("Location");
-        if (redirectUrl) return jsonResponse({ ok: true, redirectUrl });
-        return resp;
+        if (redirectUrl) {
+          const abs = redirectUrl.startsWith("http")
+            ? redirectUrl
+            : `${origin}${redirectUrl}`;
+          return jsonResponse({ ok: true, redirectUrl: abs });
+        }
       }
 
       if (resp?.redirectUrl) return jsonResponse({ ok: true, redirectUrl: resp.redirectUrl });
@@ -149,17 +153,18 @@ export default function Billing() {
   const { billing } = useLoaderData();
   const fetcher = useFetcher();
 
-  // ✅ Redirect URL geldiyse top-level yönlendir (embedded iframe blank fix)
-  useEffect(() => {
-    const redirectUrl = fetcher.data?.redirectUrl;
-    if (redirectUrl) {
-      try {
-        window.top.location.href = redirectUrl;
-      } catch {
-        window.location.href = redirectUrl;
-      }
-    }
-  }, [fetcher.data]);
+useEffect(() => {
+  const redirectUrl = fetcher.data?.redirectUrl;
+  if (!redirectUrl) return;
+
+  // ✅ Embedded + Safari'de en stabil yöntem
+  try {
+    window.open(redirectUrl, "_top");
+  } catch (_e) {
+    // fallback
+    window.location.href = redirectUrl;
+  }
+}, [fetcher.data]);
 
   // Aksiyon success sonrası sayfayı yenile (plan değişimi için)
   useEffect(() => {
