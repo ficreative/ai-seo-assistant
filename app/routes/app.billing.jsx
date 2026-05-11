@@ -1,11 +1,8 @@
 // app/routes/app.billing.jsx
 import { useEffect, useMemo } from "react";
-import {
-  Form,
-  useLoaderData,
-  useFetcher,
-  useLocation,
-} from "react-router";
+import { useFetcher, useLoaderData } from "react-router";
+import { useAppBridge } from "@shopify/app-bridge-react";
+import { Redirect } from "@shopify/app-bridge/actions";
 
 import {
   Page,
@@ -28,10 +25,6 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-/**
- * returnUrl Shopify tarafında 255 karakter limitine takılabiliyor.
- * Bu yüzden sadece shop + host + embedded gibi minimum paramlarla döndür.
- */
 function buildShortReturnUrl({ appUrl, shop, host }) {
   const base = (appUrl || "").replace(/\/$/, "");
   const qs = new URLSearchParams();
@@ -40,17 +33,12 @@ function buildShortReturnUrl({ appUrl, shop, host }) {
   qs.set("embedded", "1");
 
   const url = `${base}/app/billing?${qs.toString()}`;
-
-  // Shopify limiti: 255
   if (url.length <= 255) return url;
 
-  // host çok uzunsa sadece shop ile dön (genelde yeterli)
   const qs2 = new URLSearchParams();
   if (shop) qs2.set("shop", shop);
   qs2.set("embedded", "1");
   const url2 = `${base}/app/billing?${qs2.toString()}`;
-
-  // Yine uzunsa en kısa: /app/billing
   if (url2.length <= 255) return url2;
 
   return `${base}/app/billing`;
@@ -61,8 +49,6 @@ export const loader = async ({ request }) => {
   const { getBillingContext } = await import("../billing.gating.server.js");
 
   const { session, billing } = await authenticate.admin(request);
-
-  // Billing context (aktif abonelik var mı vs.)
   const ctx = await getBillingContext({ shop: session.shop, billing });
 
   return jsonResponse({
@@ -101,24 +87,40 @@ export const action = async ({ request }) => {
   });
 
   try {
-    // ✅ IMPORTANT:
-    // Subscribe işlemi TOP-LEVEL redirect ister.
-    // Bu yüzden bu action response'u redirect dönecek ve
-    // client tarafında da fetcher değil normal <Form> kullanılmalı.
-    if (intent === "subscribe_monthly") {
-      return await billing.request({
-        plan: MONTHLY_PLAN,
-        isTest: isTestBilling(),
-        returnUrl,
-      });
-    }
+    // ✅ SUBSCRIBE: redirect URL’i JSON olarak döndür (iframe içinde AppBridge ile yönlendireceğiz)
+    if (intent === "subscribe_monthly" || intent === "subscribe_annual") {
+      const plan = intent === "subscribe_monthly" ? MONTHLY_PLAN : ANNUAL_PLAN;
 
-    if (intent === "subscribe_annual") {
-      return await billing.request({
-        plan: ANNUAL_PLAN,
+      const resp = await billing.request({
+        plan,
         isTest: isTestBilling(),
         returnUrl,
       });
+
+      // billing.request bazen Response döndürür (302 + Location)
+      if (resp instanceof Response) {
+        const loc = resp.headers.get("Location");
+        if (loc) return jsonResponse({ ok: true, redirectUrl: loc });
+
+        // Location yoksa — debug için status/headers dönelim
+        return jsonResponse(
+          {
+            ok: false,
+            error: "Billing redirect response has no Location header.",
+            status: resp.status,
+          },
+          500
+        );
+      }
+
+      // bazı implementasyonlar {confirmationUrl} benzeri döndürebiliyor
+      const redirectUrl = resp?.confirmationUrl || resp?.redirectUrl || resp?.url;
+      if (redirectUrl) return jsonResponse({ ok: true, redirectUrl });
+
+      return jsonResponse(
+        { ok: false, error: "Billing request returned no redirect URL." },
+        500
+      );
     }
 
     if (intent === "cancel") {
@@ -148,11 +150,8 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // billing.request çoğu zaman Response döndürür/fırlatır
-    if (e instanceof Response) return e;
-
-    // Log'a daha faydalı bilgi basalım
     const msg = e instanceof Error ? e.message : String(e);
+
     console.error("[BILLING] action error:", {
       name: e?.name,
       message: msg,
@@ -167,14 +166,26 @@ export const action = async ({ request }) => {
 
 export default function Billing() {
   const { billing } = useLoaderData();
-  const location = useLocation();
+  const app = useAppBridge();
+
+  const subscribeFetcher = useFetcher();
   const cancelFetcher = useFetcher();
   const resetFetcher = useFetcher();
 
   const error =
+    (subscribeFetcher.data?.ok === false && subscribeFetcher.data?.error) ||
     (cancelFetcher.data?.ok === false && cancelFetcher.data?.error) ||
     (resetFetcher.data?.ok === false && resetFetcher.data?.error) ||
     null;
+
+  // ✅ Redirect URL gelince AppBridge ile TOP-LEVEL yönlendir
+  useEffect(() => {
+    const redirectUrl = subscribeFetcher.data?.redirectUrl;
+    if (!redirectUrl) return;
+
+    const redirect = Redirect.create(app);
+    redirect.dispatch(Redirect.Action.REMOTE, redirectUrl);
+  }, [subscribeFetcher.data, app]);
 
   useEffect(() => {
     if (cancelFetcher.state === "idle" && cancelFetcher.data?.ok) {
@@ -223,9 +234,7 @@ export default function Billing() {
       <BlockStack gap="400">
         {error ? (
           <Banner tone="critical" title="Billing error">
-            <Text as="p" variant="bodyMd">
-              {error}
-            </Text>
+            <Text as="p" variant="bodyMd">{error}</Text>
           </Banner>
         ) : null}
 
@@ -264,11 +273,7 @@ export default function Billing() {
 
                 <resetFetcher.Form method="post">
                   <input type="hidden" name="intent" value="reset_usage" />
-                  <Button
-                    tone="critical"
-                    variant="secondary"
-                    loading={resetFetcher.state !== "idle"}
-                  >
+                  <Button tone="critical" variant="secondary" loading={resetFetcher.state !== "idle"}>
                     Reset usage (dev)
                   </Button>
                 </resetFetcher.Form>
@@ -309,29 +314,36 @@ export default function Billing() {
 
                 {!proActive ? (
                   <InlineStack gap="200">
-                    {/* ✅ SUBSCRIBE: fetcher değil, normal Form olmalı */}
-                    <Form method="post" action={`${location.pathname}${location.search}`}>
-                      <input type="hidden" name="intent" value="subscribe_monthly" />
-                      <Button submit variant="primary">
-                        Start Monthly
-                      </Button>
-                    </Form>
+                    <Button
+                      variant="primary"
+                      loading={subscribeFetcher.state !== "idle"}
+                      onClick={() =>
+                        subscribeFetcher.submit(
+                          { intent: "subscribe_monthly" },
+                          { method: "post" }
+                        )
+                      }
+                    >
+                      Start Monthly
+                    </Button>
 
-                    <Form method="post" action={`${location.pathname}${location.search}`}>
-                      <input type="hidden" name="intent" value="subscribe_annual" />
-                      <Button submit variant="secondary">
-                        Start Annual
-                      </Button>
-                    </Form>
+                    <Button
+                      variant="secondary"
+                      loading={subscribeFetcher.state !== "idle"}
+                      onClick={() =>
+                        subscribeFetcher.submit(
+                          { intent: "subscribe_annual" },
+                          { method: "post" }
+                        )
+                      }
+                    >
+                      Start Annual
+                    </Button>
                   </InlineStack>
                 ) : (
                   <cancelFetcher.Form method="post">
                     <input type="hidden" name="intent" value="cancel" />
-                    <Button
-                      submit
-                      tone="critical"
-                      loading={cancelFetcher.state !== "idle"}
-                    >
+                    <Button submit tone="critical" loading={cancelFetcher.state !== "idle"}>
                       Cancel subscription
                     </Button>
                   </cancelFetcher.Form>
