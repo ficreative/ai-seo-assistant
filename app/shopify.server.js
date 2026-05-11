@@ -12,38 +12,61 @@ import prisma from "./db.server.js";
 export const MONTHLY_PLAN = "pro_monthly";
 export const ANNUAL_PLAN = "pro_annual";
 
+const scopes = (process.env.SCOPES || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
   apiVersion: ApiVersion.October25,
-  scopes: (process.env.SCOPES || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean),
+  scopes,
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
 
-  // ✅ Billing config (kalabilir; ama artık request/check helper’ı kullanmıyoruz)
+  // ✅ MANUAL PRICING → Billing API planları KODDAN tanımlanır
   billing: {
     [MONTHLY_PLAN]: {
       lineItems: [
-        { amount: 19.9, currencyCode: "USD", interval: BillingInterval.Every30Days },
+        {
+          amount: 19.9,
+          currencyCode: "USD",
+          interval: BillingInterval.Every30Days,
+        },
       ],
     },
     [ANNUAL_PLAN]: {
-      lineItems: [{ amount: 200, currencyCode: "USD", interval: BillingInterval.Annual }],
+      lineItems: [
+        {
+          amount: 200,
+          currencyCode: "USD",
+          interval: BillingInterval.Annual,
+        },
+      ],
     },
   },
 
   webhooks: {
-    CUSTOMERS_DATA_REQUEST: { deliveryMethod: DeliveryMethod.Http, callbackUrl: "/webhooks/customers/data_request" },
-    CUSTOMERS_REDACT: { deliveryMethod: DeliveryMethod.Http, callbackUrl: "/webhooks/customers/redact" },
-    SHOP_REDACT: { deliveryMethod: DeliveryMethod.Http, callbackUrl: "/webhooks/shop/redact" },
+    CUSTOMERS_DATA_REQUEST: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/customers/data_request",
+    },
+    CUSTOMERS_REDACT: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/customers/redact",
+    },
+    SHOP_REDACT: {
+      deliveryMethod: DeliveryMethod.Http,
+      callbackUrl: "/webhooks/shop/redact",
+    },
   },
 
-  future: { expiringOfflineAccessTokens: true },
+  future: {
+    expiringOfflineAccessTokens: true,
+  },
 
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }

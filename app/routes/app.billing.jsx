@@ -36,78 +36,46 @@ export const loader = async ({ request }) => {
       isPro: ctx.isPro,
       mode: ctx.mode,
       free: ctx.free,
+      activeSubscription: ctx.activeSubscription || null,
     },
   });
 };
 
-async function requestPlanAndReturnUrl({ billing, plan, isTest, returnUrl }) {
-  const res = await billing.request({ plan, isTest, returnUrl });
-
-  // Bazı sürümlerde Response döner (redirect)
-  if (res instanceof Response) {
-    const location = res.headers.get("location") || res.headers.get("Location");
-    if (location) {
-      return { confirmationUrl: location };
-    }
-    // Location yoksa aynen dön
-    return { response: res };
-  }
-
-  // Bazı sürümlerde obje dönebilir
-  if (res && typeof res === "object" && res.confirmationUrl) {
-    return { confirmationUrl: res.confirmationUrl };
-  }
-
-  return { error: "No confirmation URL returned from billing.request()" };
-}
-
 export const action = async ({ request }) => {
-  const { authenticate } = await import("../shopify.server.js");
-  const { getBillingContext, MONTHLY_PLAN, ANNUAL_PLAN, isTestBilling } = await import(
-    "../billing.gating.server.js"
-  );
+  const { authenticate, MONTHLY_PLAN, ANNUAL_PLAN } = await import("../shopify.server.js");
+  const { getBillingContext, isTestBilling } = await import("../billing.gating.server.js");
 
   const { session, billing } = await authenticate.admin(request);
+
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
   const url = new URL(request.url);
 
-  // Return URL mutlaka app domaininde olmalı
-  const baseUrl = process.env.SHOPIFY_APP_URL || url.origin;
-  const returnUrl = `${baseUrl}/app/billing?${url.searchParams.toString()}`;
+  // ✅ Embedded içinde dönüş düzgün olsun diye mevcut querystring'i koruyoruz
+  const base = process.env.SHOPIFY_APP_URL || url.origin;
+  const returnUrl = new URL("/app/billing", base);
+  returnUrl.search = url.searchParams.toString();
 
   try {
+    if (!billing) {
+      return jsonResponse({ ok: false, error: "Billing helper is missing (authenticate.admin did not return billing)." }, 500);
+    }
+
     if (intent === "subscribe_monthly") {
-      const out = await requestPlanAndReturnUrl({
-        billing,
+      return await billing.request({
         plan: MONTHLY_PLAN,
         isTest: isTestBilling(),
-        returnUrl,
+        returnUrl: returnUrl.toString(),
       });
-
-      if (out.confirmationUrl) {
-        return jsonResponse({ ok: true, confirmationUrl: out.confirmationUrl });
-      }
-      if (out.response instanceof Response) return out.response;
-
-      return jsonResponse({ ok: false, error: out.error || "Billing request failed" }, 500);
     }
 
     if (intent === "subscribe_annual") {
-      const out = await requestPlanAndReturnUrl({
-        billing,
+      return await billing.request({
         plan: ANNUAL_PLAN,
         isTest: isTestBilling(),
-        returnUrl,
+        returnUrl: returnUrl.toString(),
       });
-
-      if (out.confirmationUrl) {
-        return jsonResponse({ ok: true, confirmationUrl: out.confirmationUrl });
-      }
-      if (out.response instanceof Response) return out.response;
-
-      return jsonResponse({ ok: false, error: out.error || "Billing request failed" }, 500);
     }
 
     if (intent === "cancel") {
@@ -138,8 +106,18 @@ export const action = async ({ request }) => {
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // Billing lib bazen Response fırlatır
+    // billing.request çoğu zaman redirect Response döndürür
     if (e instanceof Response) return e;
+
+    // ✅ Daha detaylı log
+    // eslint-disable-next-line no-console
+    console.error("[BILLING] action error:", {
+      name: e?.name,
+      message: e?.message,
+      cause: e?.cause,
+      response: e?.response,
+      stack: e?.stack,
+    });
 
     const msg = e instanceof Error ? e.message : String(e);
     return jsonResponse({ ok: false, error: msg }, 500);
@@ -152,22 +130,8 @@ export default function Billing() {
 
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
-  // ✅ Eğer confirmationUrl geldiyse mutlaka TOP window'a yönlendir
   useEffect(() => {
-    const u = fetcher.data?.confirmationUrl;
-    if (!u) return;
-
-    try {
-      // Shopify admin içinde iframe -> top yönlendirme gerekli
-      window.top.location.href = u;
-    } catch (_e) {
-      window.location.href = u;
-    }
-  }, [fetcher.data]);
-
-  // Cancel / reset sonrası refresh
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok && !fetcher.data?.confirmationUrl) {
+    if (fetcher.state === "idle" && fetcher.data?.ok) {
       window.location.reload();
     }
   }, [fetcher.state, fetcher.data]);
@@ -287,24 +251,18 @@ export default function Billing() {
                   <InlineStack gap="200">
                     <fetcher.Form method="post">
                       <input type="hidden" name="intent" value="subscribe_monthly" />
-                      <Button submit variant="primary" loading={fetcher.state !== "idle"}>
-                        Start Monthly
-                      </Button>
+                      <Button submit variant="primary">Start Monthly</Button>
                     </fetcher.Form>
 
                     <fetcher.Form method="post">
                       <input type="hidden" name="intent" value="subscribe_annual" />
-                      <Button submit variant="secondary" loading={fetcher.state !== "idle"}>
-                        Start Annual
-                      </Button>
+                      <Button submit variant="secondary">Start Annual</Button>
                     </fetcher.Form>
                   </InlineStack>
                 ) : (
                   <fetcher.Form method="post">
                     <input type="hidden" name="intent" value="cancel" />
-                    <Button submit tone="critical" loading={fetcher.state !== "idle"}>
-                      Cancel subscription
-                    </Button>
+                    <Button submit tone="critical">Cancel subscription</Button>
                   </fetcher.Form>
                 )}
               </BlockStack>
