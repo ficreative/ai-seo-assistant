@@ -15,21 +15,53 @@ function monthKeyIstanbul(date = new Date()) {
   return `${year}-${month}`;
 }
 
+function normalizeShop(shop) {
+  const s = String(shop || "").trim();
+  return s || null;
+}
+
 export async function getFreeUsageMonthly(shop, limit) {
   const month = monthKeyIstanbul();
-  const row = await prisma.freePlanUsageMonthly.findUnique({ where: { shop_month: { shop, month } } });
+  const lim = limit ?? 10;
+
+  const normalizedShop = normalizeShop(shop);
+  // ✅ Guard: shop yoksa prisma çağırma (Prisma "Argument shop is missing" hatasını engeller)
+  if (!normalizedShop) {
+    return { month, used: 0, limit: lim, remaining: lim };
+  }
+
+  const row = await prisma.freePlanUsageMonthly.findUnique({
+    where: { shop_month: { shop: normalizedShop, month } },
+  });
+
   const used = row?.used ?? 0;
-  const remaining = Math.max(0, (limit ?? 10) - used);
-  return { month, used, limit: limit ?? 10, remaining };
+  const remaining = Math.max(0, lim - used);
+  return { month, used, limit: lim, remaining };
 }
 
 export async function reserveFreeUsageMonthly(shop, count, limit) {
   const month = monthKeyIstanbul();
-  const safeCount = Math.max(0, Number(count || 0));
   const lim = limit ?? 10;
 
+  const normalizedShop = normalizeShop(shop);
+  // ✅ Guard: shop yoksa reservation yapamayız, crash etmeyelim
+  if (!normalizedShop) {
+    return {
+      ok: false,
+      code: "MISSING_SHOP",
+      month,
+      used: 0,
+      limit: lim,
+      remaining: lim,
+    };
+  }
+
+  const safeCount = Math.max(0, Number(count || 0));
+
+  // ✅ Count yoksa: mevcut usage'ı döndür (used:0 gibi yanlış bilgi dönme)
   if (!safeCount) {
-    return { ok: true, code: "OK", month, used: 0, limit: lim, remaining: lim };
+    const current = await getFreeUsageMonthly(normalizedShop, lim);
+    return { ok: true, code: "OK", ...current };
   }
 
   // Postgres-safe: run in SERIALIZABLE transaction and retry on contention.
@@ -41,13 +73,19 @@ export async function reserveFreeUsageMonthly(shop, count, limit) {
         async (tx) => {
           // Ensure row exists
           await tx.freePlanUsageMonthly.upsert({
-            where: { shop_month: { shop, month } },
+            where: { shop_month: { shop: normalizedShop, month } },
             update: { updatedAt: new Date() },
-            create: { shop, month, used: 0, createdAt: new Date(), updatedAt: new Date() },
+            create: {
+              shop: normalizedShop,
+              month,
+              used: 0,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
           });
 
           const row = await tx.freePlanUsageMonthly.findUnique({
-            where: { shop_month: { shop, month } },
+            where: { shop_month: { shop: normalizedShop, month } },
           });
 
           const used = row?.used ?? 0;
@@ -65,7 +103,7 @@ export async function reserveFreeUsageMonthly(shop, count, limit) {
           }
 
           await tx.freePlanUsageMonthly.update({
-            where: { shop_month: { shop, month } },
+            where: { shop_month: { shop: normalizedShop, month } },
             data: { used: newUsed, updatedAt: new Date() },
           });
 
@@ -104,10 +142,17 @@ export async function reserveFreeUsageMonthly(shop, count, limit) {
   return { ok: false, code: "UNKNOWN", month, used: 0, limit: lim, remaining: lim };
 }
 
-
 export async function resetFreeUsageMonthly(shop) {
   const month = monthKeyIstanbul();
-  await prisma.freePlanUsageMonthly.deleteMany({ where: { shop, month } });
+  const normalizedShop = normalizeShop(shop);
+
+  // ✅ Guard
+  if (!normalizedShop) return { ok: false, code: "MISSING_SHOP", month };
+
+  await prisma.freePlanUsageMonthly.deleteMany({
+    where: { shop: normalizedShop, month },
+  });
+
   return { ok: true, month };
 }
 
