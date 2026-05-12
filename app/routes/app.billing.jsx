@@ -23,41 +23,39 @@ function jsonResponse(data, status = 200) {
 }
 
 /**
- * billing.request() genelde Response(302 Location) döndürür (bazı sürümlerde throw da edebilir).
- * fetcher (XHR) bu redirect'i top-level'a taşımadığı için biz redirectUrl'i JSON olarak client'a taşıyoruz.
+ * billing.request(...) bazen Response(redirect) döndürür.
+ * fetcher redirect'i otomatik takip etmediği için URL'yi çıkarıp client'a veriyoruz.
  */
-async function extractRedirectUrlFromBillingResult(resultOrError) {
-  // billing.request bazen Response döndürür
-  if (resultOrError instanceof Response) {
-    const loc =
-      resultOrError.headers.get("Location") ||
-      resultOrError.headers.get("location");
-    if (loc) return loc;
+async function extractRedirectUrl(resp) {
+  if (!(resp instanceof Response)) return null;
 
-    // Bazı durumlarda body json olabilir (confirmationUrl/url)
-    try {
-      const clone = resultOrError.clone();
-      const ct = clone.headers.get("content-type") || "";
-      if (ct.includes("application/json")) {
-        const j = await clone.json();
-        return j?.confirmationUrl || j?.url || null;
-      }
-    } catch (_) {
-      // ignore
+  // Normal redirect
+  const loc = resp.headers.get("Location") || resp.headers.get("location");
+  if (loc) return loc;
+
+  // Bazı durumlarda JSON body dönebilir
+  try {
+    const clone = resp.clone();
+    const ct = clone.headers.get("content-type") || "";
+    if (ct.includes("application/json")) {
+      const j = await clone.json();
+      return j?.confirmationUrl || j?.url || null;
     }
-    return null;
-  }
-
-  // billing.request bazı implementasyonlarda {confirmationUrl} döndürebiliyor
-  if (resultOrError && typeof resultOrError === "object") {
-    const url =
-      resultOrError.confirmationUrl ||
-      resultOrError.url ||
-      resultOrError.redirectUrl;
-    if (typeof url === "string" && url.startsWith("http")) return url;
+  } catch (_) {
+    // ignore
   }
 
   return null;
+}
+
+/**
+ * Shopify Billing returnUrl max 255 karakter kısıtı var.
+ * Query string eklemiyoruz. Shopify dönüşte yine embedded paramlarını getiriyor.
+ */
+function buildShortReturnUrl(request) {
+  const url = new URL(request.url);
+  const origin = process.env.SHOPIFY_APP_URL || url.origin;
+  return `${origin}/app/billing`;
 }
 
 export const loader = async ({ request }) => {
@@ -85,79 +83,49 @@ export const action = async ({ request }) => {
     MONTHLY_PLAN,
     ANNUAL_PLAN,
     isTestBilling,
+    resetFreeUsageMonthly,
   } = await import("../billing.gating.server.js");
 
   const { session, billing } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
-  // Return URL kesinlikle kısa olmalı (<=255). Querystring ekleme.
-  // Shopify dönüşte zaten app'i yeniden açar; /app/billing yeterli.
-  const origin =
-    process.env.SHOPIFY_APP_URL ||
-    new URL(request.url).origin ||
-    "https://example.com";
-  const returnUrl = `${origin}/app/billing`;
+  const returnUrl = buildShortReturnUrl(request);
+
+  // Helper: billing.request() sonucunu her zaman redirectUrl JSON'a çevir
+  const respondWithBillingRedirect = async (maybeResp) => {
+    const redirectUrl = await extractRedirectUrl(maybeResp);
+    if (!redirectUrl) {
+      // Location yoksa bunun detayını string olarak dönelim
+      return jsonResponse(
+        {
+          ok: false,
+          error: "Billing redirect response has no Location header.",
+        },
+        500
+      );
+    }
+    return jsonResponse({ ok: true, redirectUrl });
+  };
 
   try {
     if (intent === "subscribe_monthly") {
-      try {
-        const res = await billing.request({
-          plan: MONTHLY_PLAN,
-          isTest: isTestBilling(),
-          returnUrl,
-        });
-
-        const redirectUrl = await extractRedirectUrlFromBillingResult(res);
-        if (!redirectUrl) {
-          return jsonResponse(
-            {
-              ok: false,
-              error:
-                "Billing redirect response has no Location header (or confirmationUrl).",
-            },
-            500
-          );
-        }
-
-        return jsonResponse({ ok: true, redirectUrl });
-      } catch (e) {
-        const redirectUrl = await extractRedirectUrlFromBillingResult(e);
-        if (redirectUrl) return jsonResponse({ ok: true, redirectUrl });
-
-        const msg = e instanceof Error ? e.message : String(e);
-        return jsonResponse({ ok: false, error: msg }, 500);
-      }
+      const resp = await billing.request({
+        plan: MONTHLY_PLAN,
+        isTest: isTestBilling(),
+        returnUrl,
+      });
+      // resp Response olabilir
+      return await respondWithBillingRedirect(resp);
     }
 
     if (intent === "subscribe_annual") {
-      try {
-        const res = await billing.request({
-          plan: ANNUAL_PLAN,
-          isTest: isTestBilling(),
-          returnUrl,
-        });
-
-        const redirectUrl = await extractRedirectUrlFromBillingResult(res);
-        if (!redirectUrl) {
-          return jsonResponse(
-            {
-              ok: false,
-              error:
-                "Billing redirect response has no Location header (or confirmationUrl).",
-            },
-            500
-          );
-        }
-
-        return jsonResponse({ ok: true, redirectUrl });
-      } catch (e) {
-        const redirectUrl = await extractRedirectUrlFromBillingResult(e);
-        if (redirectUrl) return jsonResponse({ ok: true, redirectUrl });
-
-        const msg = e instanceof Error ? e.message : String(e);
-        return jsonResponse({ ok: false, error: msg }, 500);
-      }
+      const resp = await billing.request({
+        plan: ANNUAL_PLAN,
+        isTest: isTestBilling(),
+        returnUrl,
+      });
+      return await respondWithBillingRedirect(resp);
     }
 
     if (intent === "cancel") {
@@ -174,12 +142,24 @@ export const action = async ({ request }) => {
         prorate: true,
       });
 
-      return jsonResponse({ ok: true, revalidate: true });
+      return jsonResponse({ ok: true });
+    }
+
+    if (intent === "reset_usage") {
+      if (process.env.NODE_ENV === "production") {
+        return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
+      }
+      await resetFreeUsageMonthly(session.shop);
+      return jsonResponse({ ok: true });
     }
 
     return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
   } catch (e) {
-    // fallback
+    // billing.request bazen Response fırlatır (redirect)
+    if (e instanceof Response) {
+      return await respondWithBillingRedirect(e);
+    }
+
     const msg = e instanceof Error ? e.message : String(e);
     return jsonResponse({ ok: false, error: msg }, 500);
   }
@@ -189,21 +169,31 @@ export default function Billing() {
   const { billing } = useLoaderData();
   const fetcher = useFetcher();
 
-  const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
-  const isSubmitting = fetcher.state !== "idle";
+  // fetcher.data?.error string olmalı (Response objesi değil)
+  const error = fetcher.data?.ok === false ? String(fetcher.data?.error || "Unknown error") : null;
 
-  // ✅ Action JSON ile redirectUrl döndüğünde top-level yönlendir.
+  // Redirect gelirse embedded ortamda TOP window'a yönlendir
   useEffect(() => {
     const redirectUrl = fetcher.data?.redirectUrl;
     if (!redirectUrl) return;
 
     try {
-      // iframe içindeyiz -> top level'a çık
-      window.open(redirectUrl, "_top");
-    } catch (_) {
-      window.top.location.href = redirectUrl;
+      if (window?.top) {
+        window.top.location.href = redirectUrl;
+      } else {
+        window.location.href = redirectUrl;
+      }
+    } catch (_e) {
+      window.location.href = redirectUrl;
     }
   }, [fetcher.data]);
+
+  // cancel / reset sonrası
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok && !fetcher.data?.redirectUrl) {
+      window.location.reload();
+    }
+  }, [fetcher.state, fetcher.data]);
 
   const free = billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
@@ -234,6 +224,8 @@ export default function Billing() {
     ],
     []
   );
+
+  const isSubmitting = fetcher.state !== "idle";
 
   return (
     <Page title="Billing">
@@ -290,6 +282,15 @@ export default function Billing() {
                     ))}
                   </List>
                 </BlockStack>
+
+                <Divider />
+
+                <fetcher.Form method="post">
+                  <input type="hidden" name="intent" value="reset_usage" />
+                  <Button tone="critical" variant="secondary" loading={isSubmitting}>
+                    Reset usage (dev)
+                  </Button>
+                </fetcher.Form>
               </BlockStack>
             </Card>
           </Layout.Section>
