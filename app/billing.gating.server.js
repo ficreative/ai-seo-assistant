@@ -6,8 +6,7 @@ import {
   resetFreeUsageMonthly,
 } from "./billing.usage.server.js";
 
-export const MONTHLY_PLAN = "pro_monthly";
-export const ANNUAL_PLAN = "pro_annual";
+export const PRO_PLAN = "pro";
 
 export function isTestBilling() {
   return String(process.env.SHOPIFY_BILLING_TEST || "").toLowerCase() === "true";

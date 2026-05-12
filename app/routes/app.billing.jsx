@@ -23,40 +23,21 @@ function jsonResponse(data, status = 200) {
 }
 
 /**
- * billing.request() bazen Response(302) döner (Location header ile),
- * bazen JSON (confirmationUrl/url) döndürebilir.
+ * Managed Pricing plan selection page:
+ * https://admin.shopify.com/store/:store_handle/charges/:app_handle/pricing_plans
+ * Docs: Shopify hosts plan selection page for managed pricing.
  */
-async function extractRedirectUrl(resp) {
-  if (!(resp instanceof Response)) return null;
-
-  const loc = resp.headers.get("Location") || resp.headers.get("location");
-  if (loc) return loc;
-
-  // Bazı durumlarda body json olabilir
-  try {
-    const clone = resp.clone();
-    const ct = clone.headers.get("content-type") || "";
-    if (ct.includes("application/json")) {
-      const j = await clone.json();
-      return j?.confirmationUrl || j?.url || null;
-    }
-  } catch (_) {
-    // ignore
-  }
-
-  return null;
+function getPlanSelectionUrl({ shop, appHandle }) {
+  const storeHandle = String(shop || "").replace(".myshopify.com", "");
+  return `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
 }
-
-// ✅ Shopify App Pricing (Managed pricing) için tek plan handle:
-const PRO_PLAN = "pro";
 
 export const loader = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
   const { getBillingContext } = await import("../billing.gating.server.js");
 
-  // authenticate.admin redirect atabilir (Response throw/return). React Router bunu handle eder.
-  const { session, billing } = await authenticate.admin(request);
-  const ctx = await getBillingContext({ shop: session.shop, billing });
+  const { session, admin } = await authenticate.admin(request);
+  const ctx = await getBillingContext({ shop: session.shop, admin });
 
   return jsonResponse({
     shop: session.shop,
@@ -71,87 +52,60 @@ export const loader = async ({ request }) => {
 
 export const action = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
-  const { getBillingContext, isTestBilling } = await import("../billing.gating.server.js");
+  const { getBillingContext } = await import("../billing.gating.server.js");
 
-  const { session, billing } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
 
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
-  // ✅ returnUrl kısa olmalı (max 255). Query ekleme.
-  const base = process.env.SHOPIFY_APP_URL || new URL(request.url).origin;
-  const returnUrl = new URL("/app/billing", base).toString();
+  // Managed pricing için handle env'den geliyor (Shopify Partner Dashboard -> App handle)
+  const appHandle =
+    process.env.SHOPIFY_APP_HANDLE ||
+    process.env.SHOPIFY_APP_HANDLE?.trim() ||
+    "ai-seo-assistant"; // fallback (istersen kaldır)
 
   try {
-    // Shopify App Pricing modunda monthly/annual ayrı plan değil.
-    // İki buton da aynı sayfaya götürebilir; merchant orada monthly/yearly seçer.
+    // ✅ Start Monthly / Start Annual -> aynı Shopify plan seçim sayfasına gider
     if (intent === "subscribe_monthly" || intent === "subscribe_annual") {
-      const resp = await billing.request({
-        plan: PRO_PLAN,
-        isTest: isTestBilling(),
-        returnUrl,
+      if (!process.env.SHOPIFY_APP_HANDLE) {
+        return jsonResponse(
+          {
+            ok: false,
+            error:
+              "Missing SHOPIFY_APP_HANDLE env. Set it to your app handle (e.g. ai-seo-assistant).",
+          },
+          500
+        );
+      }
+
+      const redirectUrl = getPlanSelectionUrl({
+        shop: session.shop,
+        appHandle: process.env.SHOPIFY_APP_HANDLE,
       });
 
-      // billing.request çoğunlukla Response döndürür
-      if (resp instanceof Response) {
-        const redirectUrl = await extractRedirectUrl(resp);
-
-        if (!redirectUrl) {
-          const status = resp.status;
-          const contentType = resp.headers.get("content-type");
-          let bodyPreview = "";
-          try {
-            bodyPreview = await resp.clone().text();
-            bodyPreview = bodyPreview?.slice(0, 500) || "";
-          } catch (_) {}
-
-          // Bu log satırı sende gördüğün “Missing redirect url …” debug’ını tamamlar.
-          console.error("[BILLING] Missing redirect url", {
-            plan: PRO_PLAN,
-            returnUrl,
-            status,
-            contentType,
-            bodyPreview,
-          });
-
-          return jsonResponse(
-            {
-              ok: false,
-              error: "Billing redirect response has no Location header.",
-              details: { status, contentType, bodyPreview, returnUrl },
-            },
-            500
-          );
-        }
-
-        // ✅ fetcher redirect’i otomatik takip etmez; client’a url veriyoruz
-        return jsonResponse({ ok: true, redirectUrl });
-      }
-
-      // Eğer library JSON döndürdüyse:
-      if (resp && typeof resp === "object") {
-        const redirectUrl = resp.confirmationUrl || resp.url;
-        if (redirectUrl) return jsonResponse({ ok: true, redirectUrl });
-      }
-
-      return jsonResponse({ ok: false, error: "Unknown billing response shape." }, 500);
+      return jsonResponse({ ok: true, redirectUrl });
     }
 
-    if (intent === "cancel") {
-      const ctx = await getBillingContext({ shop: session.shop, billing });
-      const sub = ctx.activeSubscription;
-
-      if (!sub?.id) {
-        return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
+    // ✅ Cancel / Manage Plan: Managed pricing'te iptal/upgrade/downgrade Shopify sayfasından yapılır.
+    if (intent === "manage_plan") {
+      if (!process.env.SHOPIFY_APP_HANDLE) {
+        return jsonResponse(
+          {
+            ok: false,
+            error:
+              "Missing SHOPIFY_APP_HANDLE env. Set it to your app handle (e.g. ai-seo-assistant).",
+          },
+          500
+        );
       }
 
-      await billing.cancel({
-        subscriptionId: sub.id,
-        isTest: isTestBilling(),
-        prorate: true,
+      const redirectUrl = getPlanSelectionUrl({
+        shop: session.shop,
+        appHandle: process.env.SHOPIFY_APP_HANDLE,
       });
 
-      return jsonResponse({ ok: true });
+      return jsonResponse({ ok: true, redirectUrl });
     }
 
     if (intent === "reset_usage") {
@@ -163,15 +117,22 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: true });
     }
 
-    return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
-  } catch (e) {
-    // Shopify libs bazen Response throw edebilir
-    if (e instanceof Response) {
-      const redirectUrl = await extractRedirectUrl(e);
-      if (redirectUrl) return jsonResponse({ ok: true, redirectUrl });
-      return e;
+    // refresh / re-check (opsiyonel)
+    if (intent === "refresh") {
+      const ctx = await getBillingContext({ shop: session.shop, admin });
+      return jsonResponse({
+        ok: true,
+        billing: {
+          planKey: ctx.planKey,
+          isPro: ctx.isPro,
+          mode: ctx.mode,
+          free: ctx.free,
+        },
+      });
     }
 
+    return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
+  } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[BILLING] action error:", e);
     return jsonResponse({ ok: false, error: msg }, 500);
@@ -184,7 +145,7 @@ export default function Billing() {
 
   const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
-  // ✅ redirectUrl geldiyse top window’a yönlendir (embedded içinde şart)
+  // ✅ Redirect gerekiyorsa embedded olduğu için top-window'a yönlendir
   useEffect(() => {
     const redirectUrl = fetcher.data?.redirectUrl;
     if (!redirectUrl) return;
@@ -197,19 +158,11 @@ export default function Billing() {
     }
   }, [fetcher.data]);
 
-  // Cancel / reset sonrası refresh
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok && !fetcher.data?.redirectUrl) {
-      window.location.reload();
-    }
-  }, [fetcher.state, fetcher.data]);
-
   const free = billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
   const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";
 
   const proActive = billing?.isPro;
-
   const isSubmitting = fetcher.state !== "idle";
 
   const freeFeatures = useMemo(
@@ -241,12 +194,9 @@ export default function Billing() {
       <BlockStack gap="400">
         {error ? (
           <Banner tone="critical" title="Billing error">
-            <Text as="p" variant="bodyMd">{String(error)}</Text>
-            {fetcher.data?.details ? (
-              <Text as="p" variant="bodySm" tone="subdued">
-                {JSON.stringify(fetcher.data.details)}
-              </Text>
-            ) : null}
+            <Text as="p" variant="bodyMd">
+              {String(error)}
+            </Text>
           </Banner>
         ) : null}
 
@@ -256,8 +206,12 @@ export default function Billing() {
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
                   <BlockStack gap="100">
-                    <Text variant="headingMd" as="h2">Free Plan</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">For trying the app</Text>
+                    <Text variant="headingMd" as="h2">
+                      Free Plan
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      For trying the app
+                    </Text>
                   </BlockStack>
                   <Badge tone={!proActive ? "success" : undefined}>
                     {!proActive ? "Current" : "Available"}
@@ -267,17 +221,27 @@ export default function Billing() {
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="p" variant="bodyMd"><b>Monthly limit:</b> {free.limit} products</Text>
-                  <Text as="p" variant="bodyMd"><b>Usage:</b> {usageText}</Text>
-                  <Text as="p" variant="bodySm" tone="subdued">{monthLabel}</Text>
+                  <Text as="p" variant="bodyMd">
+                    <b>Monthly limit:</b> {free.limit} products
+                  </Text>
+                  <Text as="p" variant="bodyMd">
+                    <b>Usage:</b> {usageText}
+                  </Text>
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {monthLabel}
+                  </Text>
                 </BlockStack>
 
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="h3" variant="headingSm">Features</Text>
+                  <Text as="h3" variant="headingSm">
+                    Features
+                  </Text>
                   <List>
-                    {freeFeatures.map((f) => <List.Item key={f}>{f}</List.Item>)}
+                    {freeFeatures.map((f) => (
+                      <List.Item key={f}>{f}</List.Item>
+                    ))}
                   </List>
                 </BlockStack>
 
@@ -298,8 +262,12 @@ export default function Billing() {
               <BlockStack gap="300">
                 <InlineStack align="space-between" blockAlign="center">
                   <BlockStack gap="100">
-                    <Text variant="headingMd" as="h2">Pro Plan</Text>
-                    <Text as="p" variant="bodySm" tone="subdued">Unlimited + advanced tools</Text>
+                    <Text variant="headingMd" as="h2">
+                      Pro Plan
+                    </Text>
+                    <Text as="p" variant="bodySm" tone="subdued">
+                      Unlimited + advanced tools
+                    </Text>
                   </BlockStack>
                   <Badge tone={proActive ? "success" : undefined}>
                     {proActive ? "Active" : "Upgrade"}
@@ -309,16 +277,24 @@ export default function Billing() {
                 <Divider />
 
                 <BlockStack gap="200">
-                  <Text as="p" variant="bodyMd"><b>Monthly:</b> $19.90 / month</Text>
-                  <Text as="p" variant="bodyMd"><b>Annual:</b> $200 / year</Text>
+                  <Text as="p" variant="bodyMd">
+                    <b>Monthly:</b> $19.90 / month
+                  </Text>
+                  <Text as="p" variant="bodyMd">
+                    <b>Annual:</b> $200 / year
+                  </Text>
                 </BlockStack>
 
                 <Divider />
 
                 <BlockStack gap="150">
-                  <Text as="h3" variant="headingSm">Features</Text>
+                  <Text as="h3" variant="headingSm">
+                    Features
+                  </Text>
                   <List>
-                    {proFeatures.map((f) => <List.Item key={f}>{f}</List.Item>)}
+                    {proFeatures.map((f) => (
+                      <List.Item key={f}>{f}</List.Item>
+                    ))}
                   </List>
                 </BlockStack>
 
@@ -342,9 +318,9 @@ export default function Billing() {
                   </InlineStack>
                 ) : (
                   <fetcher.Form method="post">
-                    <input type="hidden" name="intent" value="cancel" />
-                    <Button submit tone="critical" loading={isSubmitting} disabled={isSubmitting}>
-                      Cancel subscription
+                    <input type="hidden" name="intent" value="manage_plan" />
+                    <Button submit variant="primary" loading={isSubmitting} disabled={isSubmitting}>
+                      Manage plan
                     </Button>
                   </fetcher.Form>
                 )}
