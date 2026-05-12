@@ -22,72 +22,14 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-async function readBodyPreview(resp, max = 500) {
-  try {
-    const txt = await resp.text();
-    return (txt || "").slice(0, max);
-  } catch {
-    return "";
-  }
-}
-
-function getLocationHeader(resp) {
-  if (!(resp instanceof Response)) return null;
-  return resp.headers.get("Location") || resp.headers.get("location") || null;
-}
-
 /**
- * billing.request bazen:
- * - Response(302 + Location) döndürür
- * - {confirmationUrl/url} gibi bir obje döndürür
- * - hata fırlatır (Response veya Error)
- *
- * Bu helper hepsini normalize eder ve redirectUrl üretir.
+ * Managed pricing plan selection page:
+ * https://admin.shopify.com/store/:store_handle/charges/:app_handle/pricing_plans
  */
-async function normalizeBillingRedirect(resultOrError) {
-  // billing.request bazen Response fırlatır
-  if (resultOrError instanceof Response) {
-    const loc = getLocationHeader(resultOrError);
-    const contentType = resultOrError.headers.get("content-type");
-    const status = resultOrError.status;
-
-    if (loc) {
-      return { ok: true, redirectUrl: loc };
-    }
-
-    // Location yoksa body preview alalım (bazı edge-case’lerde faydalı)
-    const bodyPreview = await readBodyPreview(resultOrError);
-    return {
-      ok: false,
-      error: "Billing redirect response has no Location header.",
-      debug: { status, contentType, bodyPreview },
-    };
-  }
-
-  // Obje döndüyse (confirmationUrl vs)
-  if (resultOrError && typeof resultOrError === "object") {
-    const redirectUrl =
-      resultOrError.confirmationUrl ||
-      resultOrError.confirmation_url ||
-      resultOrError.url ||
-      null;
-
-    if (redirectUrl) {
-      return { ok: true, redirectUrl };
-    }
-
-    return {
-      ok: false,
-      error: "Billing response did not include a redirect URL.",
-      debug: { keys: Object.keys(resultOrError) },
-    };
-  }
-
-  return {
-    ok: false,
-    error: "Unknown billing response type.",
-    debug: { value: String(resultOrError) },
-  };
+function getManagedPricingUrl({ shop, appHandle }) {
+  const storeHandle = String(shop || "").replace(".myshopify.com", "");
+  const handle = appHandle || process.env.SHOPIFY_APP_HANDLE || "ai-seo-assistant";
+  return `https://admin.shopify.com/store/${storeHandle}/charges/${handle}/pricing_plans`;
 }
 
 export const loader = async ({ request }) => {
@@ -97,6 +39,11 @@ export const loader = async ({ request }) => {
   const { session, billing } = await authenticate.admin(request);
   const ctx = await getBillingContext({ shop: session.shop, billing });
 
+  const pricingUrl = getManagedPricingUrl({
+    shop: session.shop,
+    appHandle: process.env.SHOPIFY_APP_HANDLE,
+  });
+
   return jsonResponse({
     shop: session.shop,
     billing: {
@@ -105,130 +52,69 @@ export const loader = async ({ request }) => {
       mode: ctx.mode,
       free: ctx.free,
     },
+    managedPricingUrl: pricingUrl,
   });
 };
 
 export const action = async ({ request }) => {
   const { authenticate } = await import("../shopify.server.js");
-  const {
-    getBillingContext,
-    MONTHLY_PLAN,
-    ANNUAL_PLAN,
-    isTestBilling,
-  } = await import("../billing.gating.server.js");
 
-  const { session, billing } = await authenticate.admin(request);
-
+  const { session } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = String(form.get("intent") || "");
 
-  // ✅ ReturnUrl KISA olmalı (255 sınırı). Query eklemiyoruz.
-  const origin = process.env.SHOPIFY_APP_URL || new URL(request.url).origin;
-  const returnUrl = `${origin}/app/billing`;
+  const pricingUrl = getManagedPricingUrl({
+    shop: session.shop,
+    appHandle: process.env.SHOPIFY_APP_HANDLE,
+  });
 
-  try {
-    if (!billing) {
-      return jsonResponse(
-        { ok: false, error: "Billing object is missing from authenticate.admin()." },
-        500
-      );
-    }
-
-    if (intent === "subscribe_monthly" || intent === "subscribe_annual") {
-      const plan = intent === "subscribe_monthly" ? MONTHLY_PLAN : ANNUAL_PLAN;
-
-      // Shopify tarafında plan bulunamaz / yetki yoksa bazen Response(401/4xx) döner/fırlatır
-      let result;
-      try {
-        result = await billing.request({
-          plan,
-          isTest: isTestBilling(),
-          returnUrl,
-        });
-      } catch (e) {
-        // billing.request bazen Response fırlatır
-        result = e;
-      }
-
-      const normalized = await normalizeBillingRedirect(result);
-
-      if (!normalized.ok) {
-        // 🔎 log için
-        console.error("[BILLING] Missing redirect url", {
-          plan,
-          returnUrl,
-          ...(normalized.debug ? normalized.debug : {}),
-        });
-
-        return jsonResponse(
-          { ok: false, error: normalized.error, debug: normalized.debug },
-          500
-        );
-      }
-
-      // fetcher redirect yapamaz -> client tarafına redirectUrl gönderiyoruz
-      return jsonResponse({ ok: true, redirectUrl: normalized.redirectUrl });
-    }
-
-    if (intent === "cancel") {
-      const ctx = await getBillingContext({ shop: session.shop, billing });
-      const sub = ctx.activeSubscription;
-
-      if (!sub?.id) {
-        return jsonResponse({ ok: false, error: "No active subscription found." }, 400);
-      }
-
-      await billing.cancel({
-        subscriptionId: sub.id,
-        isTest: isTestBilling(),
-        prorate: true,
-      });
-
-      return jsonResponse({ ok: true });
-    }
-
-    if (intent === "reset_usage") {
-      if (process.env.NODE_ENV === "production") {
-        return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
-      }
-      const { resetFreeUsageMonthly } = await import("../billing.usage.server.js");
-      await resetFreeUsageMonthly(session.shop);
-      return jsonResponse({ ok: true });
-    }
-
-    return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[BILLING] action error", { msg, intent });
-
-    return jsonResponse({ ok: false, error: msg }, 500);
+  // Managed pricing: Billing API ile charge oluşturmayacağız.
+  // Upgrade / plan change / cancel hepsi Shopify’ın pricing page’inde.
+  if (
+    intent === "subscribe_monthly" ||
+    intent === "subscribe_annual" ||
+    intent === "manage_plans" ||
+    intent === "cancel"
+  ) {
+    return jsonResponse({ ok: true, redirectUrl: pricingUrl });
   }
+
+  if (intent === "reset_usage") {
+    if (process.env.NODE_ENV === "production") {
+      return jsonResponse({ ok: false, error: "Not allowed in production" }, 403);
+    }
+    const { resetFreeUsageMonthly } = await import("../billing.usage.server.js");
+    await resetFreeUsageMonthly(session.shop);
+    return jsonResponse({ ok: true });
+  }
+
+  return jsonResponse({ ok: false, error: "Unknown intent" }, 400);
 };
 
 export default function Billing() {
-  const { billing } = useLoaderData();
+  const { billing, managedPricingUrl } = useLoaderData();
   const fetcher = useFetcher();
 
-  // ✅ RedirectUrl geldiyse iframe dışına çıkıp Shopify sayfasına yönlendir
+  const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
+
+  // fetcher ile redirect gelirse top-level redirect yap (embedded admin içinde çalışır)
   useEffect(() => {
-    const redirectUrl = fetcher.data?.redirectUrl;
-    if (!redirectUrl) return;
+    const url = fetcher.data?.redirectUrl;
+    if (!url) return;
 
     try {
-      if (window.top) window.top.location.href = redirectUrl;
-      else window.location.href = redirectUrl;
-    } catch {
-      window.location.href = redirectUrl;
+      // Shopify admin içinde tam sayfa yönlendirme
+      window.top.location.href = url;
+    } catch (_e) {
+      window.location.href = url;
     }
   }, [fetcher.data]);
-
-  const error = fetcher.data?.ok === false ? fetcher.data?.error : null;
 
   const free = billing?.free || { used: 0, remaining: 0, limit: 0, month: "" };
   const usageText = `${free.used}/${free.limit} used · ${free.remaining} remaining`;
   const monthLabel = free.month ? `Resets monthly (period: ${free.month})` : "Resets monthly";
 
-  const proActive = billing?.isPro;
+  const proActive = !!billing?.isPro;
 
   const freeFeatures = useMemo(
     () => [
@@ -262,14 +148,6 @@ export default function Billing() {
             <Text as="p" variant="bodyMd">
               {error}
             </Text>
-            {/* Debug bilgisi gelirse ufak gösterelim */}
-            {fetcher.data?.debug ? (
-              <div style={{ marginTop: 12 }}>
-                <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                  {JSON.stringify(fetcher.data.debug, null, 2)}
-                </pre>
-              </div>
-            ) : null}
           </Banner>
         ) : null}
 
@@ -322,11 +200,7 @@ export default function Billing() {
 
                 <fetcher.Form method="post">
                   <input type="hidden" name="intent" value="reset_usage" />
-                  <Button
-                    tone="critical"
-                    variant="secondary"
-                    loading={fetcher.state !== "idle"}
-                  >
+                  <Button tone="critical" variant="secondary">
                     Reset usage (dev)
                   </Button>
                 </fetcher.Form>
@@ -377,42 +251,30 @@ export default function Billing() {
 
                 <Divider />
 
-                {!proActive ? (
-                  <InlineStack gap="200">
-                    <fetcher.Form method="post">
-                      <input type="hidden" name="intent" value="subscribe_monthly" />
-                      <Button
-                        submit
-                        variant="primary"
-                        loading={fetcher.state !== "idle"}
-                      >
-                        Start Monthly
-                      </Button>
-                    </fetcher.Form>
-
-                    <fetcher.Form method="post">
-                      <input type="hidden" name="intent" value="subscribe_annual" />
-                      <Button
-                        submit
-                        variant="secondary"
-                        loading={fetcher.state !== "idle"}
-                      >
-                        Start Annual
-                      </Button>
-                    </fetcher.Form>
-                  </InlineStack>
-                ) : (
+                {/* Managed pricing: butonlar Shopify pricing page’e gider */}
+                <InlineStack gap="200">
                   <fetcher.Form method="post">
-                    <input type="hidden" name="intent" value="cancel" />
-                    <Button
-                      submit
-                      tone="critical"
-                      loading={fetcher.state !== "idle"}
-                    >
-                      Cancel subscription
+                    <input type="hidden" name="intent" value="manage_plans" />
+                    <Button submit variant="primary">
+                      Start Monthly
                     </Button>
                   </fetcher.Form>
-                )}
+
+                  <fetcher.Form method="post">
+                    <input type="hidden" name="intent" value="manage_plans" />
+                    <Button submit variant="secondary">
+                      Start Annual
+                    </Button>
+                  </fetcher.Form>
+                </InlineStack>
+
+                {/* Ayrıca direkt link (debug için faydalı) */}
+                <Text as="p" tone="subdued" variant="bodySm">
+                  If redirect is blocked, open:{" "}
+                  <a href={managedPricingUrl} target="_top" rel="noreferrer">
+                    Manage plans
+                  </a>
+                </Text>
               </BlockStack>
             </Card>
           </Layout.Section>
