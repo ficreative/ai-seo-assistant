@@ -528,6 +528,7 @@ export const action = async ({ request }) => {
     return jsonResponse({ ok: true, jobId: job.id });
   }
 
+
   if (intent === "start_generate_images") {
     // Pro-only: image ALT generation
     if (!billing.isPro) {
@@ -545,6 +546,7 @@ export const action = async ({ request }) => {
         402,
       );
     }
+
     const rawImagesJson = String(form.get("imagesJson") || "[]");
     const imagesRaw = safeParse(rawImagesJson, [])
       .map((x) => ({
@@ -556,8 +558,7 @@ export const action = async ({ request }) => {
       }))
       .filter((x) => Boolean(x.mediaId));
 
-    // Defensive dedupe by mediaId to avoid unique constraint errors
-    // (jobId, targetType, targetId) is unique for SeoJobItem
+    // Defensive dedupe by mediaId
     const images = Array.from(
       new Map(imagesRaw.map((img) => [String(img.mediaId), img])).values(),
     );
@@ -566,24 +567,17 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: false, error: "No selected images" }, 400);
     }
 
-    const job = await createAltTextJob({
-      shop: session.shop,
-      seed: { language, settings },
-      usageReserved: false, // Pro-only, free usage rezervasyonu yok
-      images,
-    });
-
+    // ✅ Pro plan: free usage rezervasyonu YAPMA
     const settingsJson = String(form.get("settingsJson") || "{}");
     const formSettings = safeParse(settingsJson, {});
     const storedSettings = await getSettingsFromMetafield(admin);
     const settings = storedSettings || formSettings || {};
-
     const language = sanitizeLanguage(settings?.language || form.get("language") || "tr");
 
     const job = await createAltTextJob({
       shop: session.shop,
       seed: { language, settings },
-      usageReserved: !billing.isPro,
+      usageReserved: false,
       images,
     });
 
@@ -609,6 +603,7 @@ export const action = async ({ request }) => {
         402,
       );
     }
+
     const rawArticleIds = String(form.get("articleIds") || "[]");
     const articleIds = safeParse(rawArticleIds, [])
       .map(String)
@@ -618,21 +613,13 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: false, error: "No selected articles" }, 400);
     }
 
-    const job = await createBlogMetaJob({
-      shop: session.shop,
-      seed: { language, settings },
-      usageReserved: false, // Pro-only, free usage rezervasyonu yok
-      articles,
-    });
-
     const settingsJson = String(form.get("settingsJson") || "{}");
     const formSettings = safeParse(settingsJson, {});
     const storedSettings = await getSettingsFromMetafield(admin);
     const settings = storedSettings || formSettings || {};
-
     const language = sanitizeLanguage(settings?.language || form.get("language") || "tr");
 
-    // Load titles for selected articles from the already fetched list if provided
+    // Optional titles map
     const rawTitles = String(form.get("titlesJson") || "{}");
     const titlesById = safeParse(rawTitles, {});
 
@@ -644,7 +631,7 @@ export const action = async ({ request }) => {
     const job = await createBlogMetaJob({
       shop: session.shop,
       seed: { language, settings },
-      usageReserved: !billing.isPro,
+      usageReserved: false,
       articles,
     });
 
