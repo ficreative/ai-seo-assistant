@@ -372,7 +372,7 @@ export const loader = async ({ request }) => {
     }
   }
 
-  const billing = await getBillingContext(session.shop);
+  const billing = await getBillingContext({ shop: session.shop, admin });
 
   return jsonResponse({
     shop: session.shop,
@@ -403,7 +403,7 @@ export const action = async ({ request }) => {
   const intent = String(form.get("intent") || "");
 
   // Billing context (used for plan gating)
-  const billing = await getBillingContext(session.shop);
+  const billing = await getBillingContext({ shop: session.shop, admin });
 
   // --- Images: update ALT text directly from preview modal (Sprint D)
   if (intent === "update_image_alt") {
@@ -474,25 +474,28 @@ export const action = async ({ request }) => {
     }
 
     // P2-12: Free plan monthly limit (10 products / month)
-    const reservation = await reserveIfFreePlan({
-      shop: session.shop,
-      productCount: productIds.length,
-    });
-    if (!reservation.ok) {
-      return jsonResponse(
-        {
-          ok: false,
-          code: reservation.code || "FREE_LIMIT_EXCEEDED",
-          error: "Free plan limit exceeded",
-          billing: {
-            planKey: reservation.planKey,
-            mode: reservation.mode,
-            free: reservation.free,
-            limit: BILLING_PLANS.FREE.monthlyProductLimit,
+    if (!billing.isPro) {
+      const reservation = await reserveIfFreePlan({
+        shop: session.shop,
+        productCount: productIds.length,
+      });
+
+      if (!reservation.ok) {
+        return jsonResponse(
+          {
+            ok: false,
+            code: reservation.code || "FREE_LIMIT_EXCEEDED",
+            error: "Free plan limit exceeded",
+            billing: {
+              planKey: reservation.planKey,
+              mode: reservation.mode,
+              free: reservation.free,
+              limit: BILLING_PLANS.FREE.monthlyProductLimit,
+            },
           },
-        },
-        402,
-      );
+          402,
+        );
+      }
     }
 
     const metaTitle = String(form.get("metaTitle") || "true") === "true";
@@ -515,7 +518,7 @@ export const action = async ({ request }) => {
         settings,
         fields: { metaTitle, metaDescription },
       },
-      usageReserved: true,
+      usageReserved: !billing.isPro,
       productIds,
       productTitlesById: titlesById,
     });
@@ -563,27 +566,12 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: false, error: "No selected images" }, 400);
     }
 
-    // Free plan monthly limit (we count images as units)
-    const reservation = await reserveIfFreePlan({
+    const job = await createAltTextJob({
       shop: session.shop,
-      productCount: images.length,
+      seed: { language, settings },
+      usageReserved: false, // Pro-only, free usage rezervasyonu yok
+      images,
     });
-    if (!reservation.ok) {
-      return jsonResponse(
-        {
-          ok: false,
-          code: reservation.code || "FREE_LIMIT_EXCEEDED",
-          error: "Free plan limit exceeded",
-          billing: {
-            planKey: reservation.planKey,
-            mode: reservation.mode,
-            free: reservation.free,
-            limit: BILLING_PLANS.FREE.monthlyProductLimit,
-          },
-        },
-        402,
-      );
-    }
 
     const settingsJson = String(form.get("settingsJson") || "{}");
     const formSettings = safeParse(settingsJson, {});
@@ -595,7 +583,7 @@ export const action = async ({ request }) => {
     const job = await createAltTextJob({
       shop: session.shop,
       seed: { language, settings },
-      usageReserved: true,
+      usageReserved: !billing.isPro,
       images,
     });
 
@@ -630,27 +618,12 @@ export const action = async ({ request }) => {
       return jsonResponse({ ok: false, error: "No selected articles" }, 400);
     }
 
-    // Free plan monthly limit (count articles as units)
-    const reservation = await reserveIfFreePlan({
+    const job = await createBlogMetaJob({
       shop: session.shop,
-      productCount: articleIds.length,
+      seed: { language, settings },
+      usageReserved: false, // Pro-only, free usage rezervasyonu yok
+      articles,
     });
-    if (!reservation.ok) {
-      return jsonResponse(
-        {
-          ok: false,
-          code: reservation.code || "FREE_LIMIT_EXCEEDED",
-          error: "Free plan limit exceeded",
-          billing: {
-            planKey: reservation.planKey,
-            mode: reservation.mode,
-            free: reservation.free,
-            limit: BILLING_PLANS.FREE.monthlyProductLimit,
-          },
-        },
-        402,
-      );
-    }
 
     const settingsJson = String(form.get("settingsJson") || "{}");
     const formSettings = safeParse(settingsJson, {});
@@ -671,7 +644,7 @@ export const action = async ({ request }) => {
     const job = await createBlogMetaJob({
       shop: session.shop,
       seed: { language, settings },
-      usageReserved: true,
+      usageReserved: !billing.isPro,
       articles,
     });
 

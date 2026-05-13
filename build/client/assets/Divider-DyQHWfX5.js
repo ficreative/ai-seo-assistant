@@ -1,0 +1,1 @@
+import{V as e,z as t}from"./chunk-5KNZJZUH-CXZH0_bv.js";var n=e(t()),r={Divider:`Polaris-Divider`},i=({borderColor:e=`border-secondary`,borderWidth:t=`025`})=>{let i=e===`transparent`?e:`var(--p-color-${e})`;return n.createElement(`hr`,{className:r.Divider,style:{borderBlockStart:`var(--p-border-width-${t}) solid ${i}`}})};export{i as t};
