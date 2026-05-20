@@ -590,7 +590,122 @@ async function generateSeoForProduct({ title, descriptionText, language, setting
   };
 }
 
-async function generateAltTextForImage({ productTitle, productDescriptionText, currentAltText, language, settings, onAttempt, onRetry }) {
+function hasImageCompositionTerms(text) {
+  const t = String(text || "").toLowerCase();
+
+  const blockedTerms = [
+    "arka plan",
+    "background",
+    "zemin",
+    "düz zemin",
+    "beyaz zemin",
+    "renk",
+    "renklerde",
+    "mavi",
+    "beyaz",
+    "mor",
+    "siyah",
+    "tasarım",
+    "tasarımlı",
+    "tasarımı",
+    "detay",
+    "detayları",
+    "sergileniyor",
+    "sergilenen",
+    "görüntüleniyor",
+    "görünmektedir",
+    "yer alan",
+    "karla kaplı",
+    "karlı",
+    "dağ",
+    "fotoğraf",
+    "görsel",
+    "ambalaj",
+    "packaging",
+    "displayed",
+    "shown",
+    "showcasing",
+    "sleek design",
+    "vibrant colors",
+    "minimal",
+    "modern tasarım",
+    "şık tasarım",
+    "şık detay",
+    "canlı renk",
+  ];
+
+  return blockedTerms.some((term) => t.includes(term));
+}
+
+async function rewriteAltTextProductFocused({
+  altText,
+  productTitle,
+  productDescriptionText,
+  language,
+  settings,
+  maxChars,
+  onAttempt,
+  onRetry,
+}) {
+  const lang = sanitizeLanguage(language);
+  const brand = String(settings?.brandName || "").trim();
+  const targetKeyword = String(settings?.targetKeyword || "").trim();
+
+  const sys =
+    "You are an expert Shopify SEO assistant. " +
+    "Rewrite ALT text so it describes the product and its use case, not the image scene. " +
+    outputLanguageGuard(lang) + " " +
+    "Return ONLY valid JSON with key: altText. " +
+    `altText max ${maxChars} chars. ` +
+    "No markdown, no extra keys.";
+
+  const user = [
+    `Language: ${lang}`,
+    brand ? `Brand: ${brand}` : "",
+    targetKeyword ? `Target keyword, only if natural: ${targetKeyword}` : "",
+    `Product title: ${productTitle || ""}`,
+    productDescriptionText ? `Product context: ${productDescriptionText}` : "",
+    `Bad ALT text to rewrite: ${altText || ""}`,
+    "",
+    "Rewrite rules:",
+    "- Start with or include the product title.",
+    "- Clearly mention the product type.",
+    "- Mention use case, audience, or category only if supported by product title or product context.",
+    "- If product context is weak, use the product title and product type only.",
+    "- Do NOT describe background, colors, design, details, scene, surface, camera angle, display style, packaging, or image composition.",
+    "- Avoid these words completely: arka plan, zemin, renk, renklerde, tasarım, detay, sergileniyor, görüntüleniyor, karla kaplı, karlı, dağ, fotoğraf, görsel, ambalaj.",
+    "- Do not invent medical, cosmetic, legal, certification, performance, or guarantee claims.",
+    "- Keep it concise and natural.",
+    "",
+    "Good examples:",
+    "The Draft Snowboard snowboard kullanımı ve kış sporları için snowboard modeli",
+    "The Compare at Price Snowboard kış sporları için snowboard modeli",
+    "The Archived Snowboard snowboard kullanıcıları için kış sporlarına uygun snowboard modeli",
+    "Be Bright Vitamin C Plus Leke Karşıtı Krem 33 ML cilt lekeleri ve ton eşitsizliği için bakım kremi",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const out = await openAiChatJson({
+    sys,
+    user,
+    max_tokens: 120,
+    onAttempt,
+    onRetry,
+  });
+
+  return String(out?.altText || "").trim();
+}
+
+async function generateAltTextForImage({
+  productTitle,
+  productDescriptionText,
+  currentAltText,
+  language,
+  settings,
+  onAttempt,
+  onRetry,
+}) {
   const lang = sanitizeLanguage(language);
   const brand = String(settings?.brandName || "").trim();
   const tone = String(settings?.tone || "default").trim();
@@ -600,7 +715,10 @@ async function generateAltTextForImage({ productTitle, productDescriptionText, c
   const bannedWordsRaw = String(settings?.bannedWords || "").trim();
 
   const allowEmojis = Boolean(settings?.allowEmojis);
-  const maxChars = Math.max(40, Number.parseInt(String(settings?.altTextMaxChars || ""), 10) || 125);
+  const maxChars = Math.max(
+    40,
+    Number.parseInt(String(settings?.altTextMaxChars || ""), 10) || 125,
+  );
 
   const requiredKeywords = requiredKeywordsRaw
     ? requiredKeywordsRaw
@@ -609,6 +727,7 @@ async function generateAltTextForImage({ productTitle, productDescriptionText, c
         .filter(Boolean)
         .slice(0, 10)
     : [];
+
   const bannedWords = bannedWordsRaw
     ? bannedWordsRaw
         .split(",")
@@ -618,7 +737,8 @@ async function generateAltTextForImage({ productTitle, productDescriptionText, c
     : [];
 
   const sys =
-    "You write concise, descriptive ALT text for Shopify product images. " +
+    "You are an expert Shopify SEO assistant. " +
+    "You write SEO-focused ALT text for Shopify product images. " +
     outputLanguageGuard(lang) + " " +
     "Return ONLY valid JSON with key: altText. " +
     `altText max ${maxChars} chars. ` +
@@ -629,24 +749,67 @@ async function generateAltTextForImage({ productTitle, productDescriptionText, c
     brand ? `Brand: ${brand}` : "",
     `Tone: ${tone}`,
     voice ? `Brand voice guidelines: ${voice}` : "",
-    targetKeyword ? `Target keyword (optional, only if natural): ${targetKeyword}` : "",
+    targetKeyword
+      ? `Target keyword, optional and only if natural: ${targetKeyword}`
+      : "",
     requiredKeywords.length
-      ? `Must include (naturally, if possible): ${requiredKeywords.join(", ")}`
+      ? `Must include naturally if relevant: ${requiredKeywords.join(", ")}`
       : "",
     bannedWords.length ? `Avoid these words: ${bannedWords.join(", ")}` : "",
-    allowEmojis ? "Emojis are allowed (but usually avoid in alt text)." : "Do not use emojis.",
-    currentAltText ? `Current ALT text: ${currentAltText}` : "",
+    allowEmojis
+      ? "Emojis are allowed, but usually avoid them in ALT text."
+      : "Do not use emojis.",
     `Product title: ${productTitle || ""}`,
-    productDescriptionText ? `Product description (plain text): ${productDescriptionText}` : "",
-    "Goal: Describe what the image likely shows for accessibility. " +
-      "Do not keyword-stuff. Do not repeat brand name unless it helps identification. " +
-      "Avoid salesy language. Avoid quotes." ,
+    productDescriptionText
+      ? `Product context, plain text: ${productDescriptionText}`
+      : "",
+    "",
+    "Goal:",
+    "Generate one SEO-focused ALT text for a Shopify product image.",
+    "",
+    "Core rule:",
+    "The ALT text must describe the PRODUCT and its use case, not the image scene.",
+    "",
+    "Required behavior:",
+    "- Start with or include the exact product title when it is meaningful.",
+    "- Mention the product type clearly.",
+    "- Mention the main use case, audience, category, or benefit only when it is supported by the product title or product context.",
+    "- If product context is weak, still create a product-focused ALT text using the product title and product type.",
+    "- Keep it natural, concise, and useful for SEO and accessibility.",
+    "",
+    "Avoid completely:",
+    "- Do not describe background, colors, camera angle, packaging, layout, design details, graphic design, scene, surface, or how the product is displayed.",
+    "- Do not use words like background, arka plan, zemin, renk, renklerde, tasarım, detay, sergileniyor, görüntüleniyor, fotoğraf, görsel, ambalaj, packaging, displayed, shown, design.",
+    "- Do not say image of, photo of, picture of, product image, görseli, fotoğrafı, ambalajı.",
+    "- Do not use salesy language.",
+    "- Do not keyword-stuff.",
+    "- Do not invent medical, cosmetic, legal, certification, performance, or guarantee claims.",
+    "- Do not promise results.",
+    "",
+    "Good examples:",
+    "The Archived Snowboard kış sporları ve snowboard kullanımı için snowboard modeli",
+    "The Compare at Price Snowboard kış sporları için snowboard modeli",
+    "The Draft Snowboard snowboard kullanımı ve kış sporları için snowboard modeli",
+    "Be Bright Vitamin C Plus Leke Karşıtı Krem 33 ML cilt lekeleri ve ton eşitsizliği için bakım kremi",
+    "",
+    "Bad examples:",
+    "Karla kaplı bir arka planda Archived Snowboard'un zarif tasarımı sergileniyor",
+    "Mavi ve beyaz renklerde minimal tasarıma sahip bir snowboard",
+    "Düz zemin üzerinde modern bir snowboard tasarımı ve detaylarıyla görüntüleniyor",
+    "Be Bright Vitamin C Plus Leke Karşıtı Krem 33 ML ambalajı beyaz zemin üzerine tasarlanmış",
   ]
     .filter(Boolean)
     .join("\n");
 
-  const out = await openAiChatJson({ sys, user, max_tokens: 120, onAttempt, onRetry });
-  let altText = String(out?.altText || "");
+  const out = await openAiChatJson({
+    sys,
+    user,
+    max_tokens: 140,
+    onAttempt,
+    onRetry,
+  });
+
+  let altText = String(out?.altText || "").trim();
 
   if (isLanguageMismatch(lang, altText)) {
     const rewritten = await rewriteJsonToLanguage({
@@ -657,7 +820,66 @@ async function generateAltTextForImage({ productTitle, productDescriptionText, c
       onAttempt,
       onRetry,
     });
-    altText = String(rewritten?.altText || altText);
+
+    altText = String(rewritten?.altText || altText).trim();
+  }
+
+  altText = altText
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (hasImageCompositionTerms(altText)) {
+    const rewrittenAltText = await rewriteAltTextProductFocused({
+      altText,
+      productTitle,
+      productDescriptionText,
+      language: lang,
+      settings,
+      maxChars,
+      onAttempt,
+      onRetry,
+    });
+
+    if (rewrittenAltText) {
+      altText = rewrittenAltText
+        .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+  }
+
+  if (hasImageCompositionTerms(altText)) {
+    const fallbackTitle = String(productTitle || "").trim();
+    const lowerTitle = fallbackTitle.toLowerCase();
+
+    let fallbackProductType = "ürün";
+
+    if (lowerTitle.includes("snowboard")) {
+      fallbackProductType = "snowboard modeli";
+    } else if (
+      lowerTitle.includes("krem") ||
+      lowerTitle.includes("cream") ||
+      lowerTitle.includes("serum") ||
+      lowerTitle.includes("bakım")
+    ) {
+      fallbackProductType = "bakım ürünü";
+    } else if (
+      lowerTitle.includes("shoe") ||
+      lowerTitle.includes("ayakkabı") ||
+      lowerTitle.includes("sneaker")
+    ) {
+      fallbackProductType = "ayakkabı modeli";
+    } else if (
+      lowerTitle.includes("dress") ||
+      lowerTitle.includes("elbise")
+    ) {
+      fallbackProductType = "elbise modeli";
+    }
+
+    altText = fallbackTitle
+      ? `${fallbackTitle} ${fallbackProductType}`.trim()
+      : fallbackProductType;
   }
 
   return {
@@ -672,18 +894,27 @@ async function fetchProduct(admin, id) {
         id
         title
         descriptionHtml
+        vendor
+        productType
+        tags
       }
     }
   `;
+
   const resp = await withTimeout(
     admin.graphql(query, { variables: { id } }),
     30_000,
-    "Shopify GraphQL fetchProduct"
+    "Shopify GraphQL fetchProduct",
   );
-  const json = await withTimeout(resp.json(), 30_000, "Shopify GraphQL fetchProduct json()");
+
+  const json = await withTimeout(
+    resp.json(),
+    30_000,
+    "Shopify GraphQL fetchProduct json()",
+  );
+
   return json?.data?.product || null;
 }
-
 
 async function fetchArticle(admin, id) {
   const query = `#graphql
@@ -1103,7 +1334,17 @@ async function processGenerate(job) {
 
         const p = await fetchProduct(admin, parentId);
         const title = p?.title || item.productTitle || "";
-        const descText = stripHtml(p?.descriptionHtml || "");
+
+        const productContextParts = [
+          stripHtml(p?.descriptionHtml || ""),
+          p?.vendor ? `Vendor: ${p.vendor}` : "",
+          p?.productType ? `Product type: ${p.productType}` : "",
+          Array.isArray(p?.tags) && p.tags.length
+            ? `Tags: ${p.tags.join(", ")}`
+            : "",
+        ];
+
+        const descText = productContextParts.filter(Boolean).join("\n");
 
         const out = await generateAltTextForImage({
           productTitle: title,
@@ -1630,8 +1871,15 @@ async function handleJob(jobId, _kind, lockOwner, preloadedJob = null) {
       // To make sure the limit cannot be bypassed, we enforce it here as well.
       // We only reserve once per job (usageReserved flag).
       if (!job.usageReserved) {
-        const usageCount = Number(job.usageCount || job.total || 0);
-        const reservation = await reserveIfFreePlan({ shop: job.shop, productCount: usageCount });
+      const usageCount = Number(job.usageCount || job.total || 0);
+
+      const billingAdmin = await getAdminClientForShop(job.shop);
+
+      const reservation = await reserveIfFreePlan({
+        shop: job.shop,
+        productCount: usageCount,
+        admin: billingAdmin,
+      });
 
         if (!reservation.ok) {
           const now = new Date();

@@ -8,43 +8,59 @@ function monthKeyIstanbul(date = /* @__PURE__ */ new Date()) {
 	}).formatToParts(date);
 	return `${parts.find((p) => p.type === "year")?.value}-${parts.find((p) => p.type === "month")?.value}`;
 }
+function normalizeShop(shop) {
+	return String(shop || "").trim() || null;
+}
 async function getFreeUsageMonthly(shop, limit) {
 	const month = monthKeyIstanbul();
-	const used = (await prisma.freePlanUsageMonthly.findUnique({ where: { shop_month: {
-		shop,
-		month
-	} } }))?.used ?? 0;
-	const remaining = Math.max(0, (limit ?? 10) - used);
-	return {
-		month,
-		used,
-		limit: limit ?? 10,
-		remaining
-	};
-}
-async function reserveFreeUsageMonthly(shop, count, limit) {
-	const month = monthKeyIstanbul();
-	const safeCount = Math.max(0, Number(count || 0));
 	const lim = limit ?? 10;
-	if (!safeCount) return {
-		ok: true,
-		code: "OK",
+	const normalizedShop = normalizeShop(shop);
+	if (!normalizedShop) return {
 		month,
 		used: 0,
 		limit: lim,
 		remaining: lim
+	};
+	const used = (await prisma.freePlanUsageMonthly.findUnique({ where: { shop_month: {
+		shop: normalizedShop,
+		month
+	} } }))?.used ?? 0;
+	return {
+		month,
+		used,
+		limit: lim,
+		remaining: Math.max(0, lim - used)
+	};
+}
+async function reserveFreeUsageMonthly(shop, count, limit) {
+	const month = monthKeyIstanbul();
+	const lim = limit ?? 10;
+	const normalizedShop = normalizeShop(shop);
+	if (!normalizedShop) return {
+		ok: false,
+		code: "MISSING_SHOP",
+		month,
+		used: 0,
+		limit: lim,
+		remaining: lim
+	};
+	const safeCount = Math.max(0, Number(count || 0));
+	if (!safeCount) return {
+		ok: true,
+		code: "OK",
+		...await getFreeUsageMonthly(normalizedShop, lim)
 	};
 	const MAX_RETRIES = 3;
 	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) try {
 		return await prisma.$transaction(async (tx) => {
 			await tx.freePlanUsageMonthly.upsert({
 				where: { shop_month: {
-					shop,
+					shop: normalizedShop,
 					month
 				} },
 				update: { updatedAt: /* @__PURE__ */ new Date() },
 				create: {
-					shop,
+					shop: normalizedShop,
 					month,
 					used: 0,
 					createdAt: /* @__PURE__ */ new Date(),
@@ -52,7 +68,7 @@ async function reserveFreeUsageMonthly(shop, count, limit) {
 				}
 			});
 			const used = (await tx.freePlanUsageMonthly.findUnique({ where: { shop_month: {
-				shop,
+				shop: normalizedShop,
 				month
 			} } }))?.used ?? 0;
 			const newUsed = used + safeCount;
@@ -66,7 +82,7 @@ async function reserveFreeUsageMonthly(shop, count, limit) {
 			};
 			await tx.freePlanUsageMonthly.update({
 				where: { shop_month: {
-					shop,
+					shop: normalizedShop,
 					month
 				} },
 				data: {
@@ -99,8 +115,14 @@ async function reserveFreeUsageMonthly(shop, count, limit) {
 }
 async function resetFreeUsageMonthly(shop) {
 	const month = monthKeyIstanbul();
+	const normalizedShop = normalizeShop(shop);
+	if (!normalizedShop) return {
+		ok: false,
+		code: "MISSING_SHOP",
+		month
+	};
 	await prisma.freePlanUsageMonthly.deleteMany({ where: {
-		shop,
+		shop: normalizedShop,
 		month
 	} });
 	return {

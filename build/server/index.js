@@ -1,6 +1,6 @@
 import { a as login, c as boundary, i as authenticate, l as LoginErrorType, o as registerWebhooks, r as addDocumentResponseHeaders } from "./assets/shopify.server-Df8PYkqy.js";
 import { t as prisma } from "./assets/db.server-BzuWsmVg.js";
-import { i as BILLING_PLANS, r as reserveIfFreePlan, t as getBillingContext } from "./assets/billing.gating.server-DqsipGCM.js";
+import { n as reserveIfFreePlan, r as BILLING_PLANS, t as getBillingContext } from "./assets/billing.gating.server-qwN74AOR.js";
 import { PassThrough } from "stream";
 import { renderToPipeableStream } from "react-dom/server";
 import { Form, Link, Links, Meta, Outlet, Scripts, ScrollRestoration, ServerRouter, UNSAFE_withComponentProps, UNSAFE_withErrorBoundaryProps, isRouteErrorResponse, redirect, useActionData, useFetcher, useLoaderData, useLocation, useNavigate, useOutlet, useParams, useRouteError, useSearchParams } from "react-router";
@@ -10337,7 +10337,7 @@ function loginErrorMessage(loginErrors) {
 //#endregion
 //#region app/routes/auth.login/route.jsx
 var route_exports$1 = /* @__PURE__ */ __exportAll({
-	action: () => action$12,
+	action: () => action$11,
 	default: () => route_default$1,
 	loader: () => loader$14
 });
@@ -10346,7 +10346,7 @@ var loader$14 = async ({ request }) => {
 	if (url.searchParams.get("shop")) throw redirect(`/auth?${url.searchParams.toString()}`);
 	return { errors: loginErrorMessage(await login(request)) };
 };
-var action$12 = async ({ request }) => {
+var action$11 = async ({ request }) => {
 	return { errors: loginErrorMessage(await login(request)) };
 };
 var route_default$1 = UNSAFE_withComponentProps(function Index() {
@@ -10405,8 +10405,8 @@ var route_default$1 = UNSAFE_withComponentProps(function Index() {
 });
 //#endregion
 //#region app/routes/webhooks.jsx
-var webhooks_exports = /* @__PURE__ */ __exportAll({ action: () => action$11 });
-var action$11 = async ({ request }) => {
+var webhooks_exports = /* @__PURE__ */ __exportAll({ action: () => action$10 });
+var action$10 = async ({ request }) => {
 	try {
 		const { topic, shop } = await authenticate.webhook(request);
 		if (topic === "CUSTOMERS_DATA_REQUEST" || topic === "CUSTOMERS_REDACT" || topic === "SHOP_REDACT") {
@@ -10421,21 +10421,21 @@ var action$11 = async ({ request }) => {
 };
 //#endregion
 //#region app/routes/webhooks.customers.data_request.jsx
-var webhooks_customers_data_request_exports = /* @__PURE__ */ __exportAll({ action: () => action$10 });
+var webhooks_customers_data_request_exports = /* @__PURE__ */ __exportAll({ action: () => action$9 });
 /**
 * Mandatory compliance webhook: customers/data_request
 * If you don't store customer data, you can simply acknowledge the request (200).
 * If you do store customer data, you must provide it to the store owner within 30 days.
 */
-var action$10 = async ({ request }) => {
+var action$9 = async ({ request }) => {
 	const { shop, topic, payload } = await authenticate.webhook(request);
 	console.log(`Received ${topic} webhook for ${shop}`);
 	return new Response(null, { status: 200 });
 };
 //#endregion
 //#region app/routes/webhooks.app.scopes_update.jsx
-var webhooks_app_scopes_update_exports = /* @__PURE__ */ __exportAll({ action: () => action$9 });
-var action$9 = async ({ request }) => {
+var webhooks_app_scopes_update_exports = /* @__PURE__ */ __exportAll({ action: () => action$8 });
+var action$8 = async ({ request }) => {
 	const { payload, session, topic, shop } = await authenticate.webhook(request);
 	console.log(`Received ${topic} webhook for ${shop}`);
 	const current = payload.current;
@@ -10447,20 +10447,20 @@ var action$9 = async ({ request }) => {
 };
 //#endregion
 //#region app/routes/webhooks.customers.redact.jsx
-var webhooks_customers_redact_exports = /* @__PURE__ */ __exportAll({ action: () => action$8 });
+var webhooks_customers_redact_exports = /* @__PURE__ */ __exportAll({ action: () => action$7 });
 /**
 * Mandatory compliance webhook: customers/redact
 * If you store customer data, delete/redact it.
 */
-var action$8 = async ({ request }) => {
+var action$7 = async ({ request }) => {
 	const { shop, topic, payload } = await authenticate.webhook(request);
 	console.log(`Received ${topic} webhook for ${shop}`);
 	return new Response(null, { status: 200 });
 };
 //#endregion
 //#region app/routes/webhooks.app.uninstalled.jsx
-var webhooks_app_uninstalled_exports = /* @__PURE__ */ __exportAll({ action: () => action$7 });
-var action$7 = async ({ request }) => {
+var webhooks_app_uninstalled_exports = /* @__PURE__ */ __exportAll({ action: () => action$6 });
+var action$6 = async ({ request }) => {
 	const { shop, topic } = await authenticate.webhook(request);
 	console.log(`Received ${topic} webhook for ${shop}`);
 	try {
@@ -10477,14 +10477,14 @@ var action$7 = async ({ request }) => {
 };
 //#endregion
 //#region app/routes/webhooks.shop.redact.jsx
-var webhooks_shop_redact_exports = /* @__PURE__ */ __exportAll({ action: () => action$6 });
+var webhooks_shop_redact_exports = /* @__PURE__ */ __exportAll({ action: () => action$5 });
 /**
 * Mandatory compliance webhook: shop/redact
 * Delete/redact all shop data that your app stored for this shop.
 *
 * Note: We intentionally do not log webhook payloads to avoid accidentally logging PII.
 */
-var action$6 = async ({ request }) => {
+var action$5 = async ({ request }) => {
 	const { shop, topic } = await authenticate.webhook(request);
 	console.log(`Received ${topic} webhook for ${shop}`);
 	try {
@@ -10662,7 +10662,7 @@ var app_exports = /* @__PURE__ */ __exportAll({
 	loader: () => loader$11
 });
 var loader$11 = async ({ request }) => {
-	const { getBillingContext } = await import("./assets/billing.gating.server-Ct-YnoxI.js");
+	const { getBillingContext } = await import("./assets/billing.gating.server-172Vx-xu.js");
 	const { session, admin } = await authenticate.admin(request);
 	const url = new URL(request.url);
 	const host = url.searchParams.get("host") || "";
@@ -11318,7 +11318,7 @@ async function cancelJobForShop({ shop, jobId }) {
 //#region app/routes/app.generation-history.jsx
 var app_generation_history_exports = /* @__PURE__ */ __exportAll({
 	ErrorBoundary: () => ErrorBoundary$4,
-	action: () => action$5,
+	action: () => action$4,
 	default: () => app_generation_history_default,
 	loader: () => loader$9
 });
@@ -11362,7 +11362,7 @@ async function loader$9({ request }) {
 		embedded
 	};
 }
-async function action$5({ request }) {
+async function action$4({ request }) {
 	const { session } = await authenticate.admin(request);
 	const shop = session.shop || "";
 	const formData = await request.formData();
@@ -12046,7 +12046,7 @@ var ErrorBoundary$4 = UNSAFE_withErrorBoundaryProps(function ErrorBoundary() {
 //#region app/routes/app.generation-history.$jobId.jsx
 var app_generation_history_$jobId_exports = /* @__PURE__ */ __exportAll({
 	ErrorBoundary: () => ErrorBoundary$3,
-	action: () => action$4,
+	action: () => action$3,
 	default: () => app_generation_history_$jobId_default,
 	loader: () => loader$8
 });
@@ -12283,7 +12283,7 @@ async function loader$8({ request, params }) {
 	};
 }
 /** ---------------- action ---------------- */
-async function action$4({ request, params }) {
+async function action$3({ request, params }) {
 	const { admin, session } = await authenticate.admin(request);
 	const jobId = String(params.jobId || "");
 	const formData = await request.formData();
@@ -14119,16 +14119,23 @@ var loader$7 = async ({ request }) => {
 function clamp(n, min, max) {
 	return Math.max(min, Math.min(max, n));
 }
-function StretchCard({ children }) {
+function DashboardCard({ children }) {
 	return /* @__PURE__ */ jsx("div", {
-		className: "gsCardWrap",
-		children: /* @__PURE__ */ jsx(Card, { children })
+		className: "gsCard",
+		children: /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsx("div", {
+			className: "gsCardInner",
+			children
+		}) })
 	});
 }
 var app_onboarding_default = UNSAFE_withComponentProps(function Onboarding() {
 	const { settings, billing, stats } = useLoaderData();
 	const location = useLocation();
-	const withSearch = (path) => `${path}${location.search || ""}`;
+	const withSearch = (path) => {
+		const search = location.search || "";
+		if (!search) return path;
+		return path.includes("?") ? `${path}&${search.replace(/^\?/, "")}` : `${path}${search}`;
+	};
 	const isConfigured = settings && (settings.brandName || settings.brandVoiceGuidelines || settings.targetKeyword);
 	const stepSettings = Boolean(isConfigured);
 	const stepProduct = (stats?.productJobs || 0) > 0;
@@ -14171,108 +14178,135 @@ var app_onboarding_default = UNSAFE_withComponentProps(function Onboarding() {
 	];
 	const doneCount = steps.filter((s) => s.done).length;
 	const progress = clamp(Math.round(doneCount / steps.length * 100), 0, 100);
+	const planKey = String(billing?.planKey || "").toLowerCase();
+	const isProPlan = Boolean(billing?.isPro) || planKey.includes("pro") || planKey.includes("monthly") || planKey.includes("yearly") || planKey.includes("annual");
 	const freeUsed = billing?.free?.used || 0;
 	const freeLimit = billing?.free?.limit || billing?.free?.monthlyLimit || 0;
 	const freeRemaining = typeof billing?.free?.remaining === "number" ? billing.free.remaining : Math.max(0, freeLimit - freeUsed);
-	return /* @__PURE__ */ jsx(Page, {
+	return /* @__PURE__ */ jsxs(Page, {
 		title: "Get started",
 		fullWidth: true,
-		children: /* @__PURE__ */ jsxs("div", {
-			style: {
-				width: "100%",
-				padding: "0"
-			},
-			children: [/* @__PURE__ */ jsx("style", { children: `
+		children: [/* @__PURE__ */ jsx("style", { children: `
+        .gsPage {
+          width: 100%;
+          box-sizing: border-box;
+        }
 
-.gsRows {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  box-sizing: border-box;
-}
-.gsRow {
-  display: flex;
-  gap: 16px;
-  align-items: stretch;
-  width: 100%;
-  box-sizing: border-box;
-}
-.gsCol {
-  /* Strict 50/50 columns (gap-aware) */
-  flex: 0 0 calc(50% - 8px);
-  max-width: calc(50% - 8px);
-  min-width: 0;
-  display: flex;
-  box-sizing: border-box;
-}
+        .gsGrid {
+          width: 100%;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 16px;
+          align-items: stretch;
+          box-sizing: border-box;
+        }
 
-.gsCardWrap {
-  flex: 1;
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-.gsCardWrap .Polaris-Card {
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.gsCardWrap .Polaris-Card__Section { flex: 1; }
+        .gsCard {
+          width: 100%;
+          min-width: 0;
+          height: 100%;
+          min-height: 300px;
+          box-sizing: border-box;
+        }
 
-@media (max-width: 768px) {
-  .gsRow { flex-direction: column; }
-  .gsCol { flex: 0 0 100%; max-width: 100%; }
-}
-` }), /* @__PURE__ */ jsxs("div", {
-				className: "gsRows",
+        .gsCard > .Polaris-Card {
+          height: 100%;
+          width: 100%;
+          min-height: 300px;
+          display: flex;
+          flex-direction: column;
+          border-radius: 18px;
+          overflow: hidden;
+        }
+
+        .gsCard .Polaris-ShadowBevel {
+          border-radius: 18px;
+        }
+
+        .gsCardInner {
+          height: 100%;
+          min-height: 300px;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .gsCardInner > .Polaris-BlockStack {
+          flex: 1;
+        }
+
+        .gsChecklistItem {
+          width: 100%;
+          min-width: 0;
+        }
+
+        .gsChecklistContent {
+          flex: 1;
+          min-width: 0;
+        }
+
+        @media (max-width: 768px) {
+          .gsGrid {
+            grid-template-columns: 1fr;
+          }
+
+          .gsCard,
+          .gsCard > .Polaris-Card,
+          .gsCardInner {
+            min-height: auto;
+          }
+        }
+      ` }), /* @__PURE__ */ jsx("div", {
+			className: "gsPage",
+			children: /* @__PURE__ */ jsxs("div", {
+				className: "gsGrid",
 				children: [
-					/* @__PURE__ */ jsxs("div", {
-						className: "gsRow",
-						children: [/* @__PURE__ */ jsx("div", {
-							className: "gsCol",
-							children: /* @__PURE__ */ jsx(StretchCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
-								gap: "400",
-								children: [
-									/* @__PURE__ */ jsxs(InlineStack, {
-										align: "space-between",
-										blockAlign: "center",
-										children: [/* @__PURE__ */ jsxs(BlockStack, {
-											gap: "100",
-											children: [/* @__PURE__ */ jsx(Text, {
-												as: "h2",
-												variant: "headingMd",
-												children: "Onboarding checklist"
-											}), /* @__PURE__ */ jsxs(Text, {
-												as: "p",
-												variant: "bodySm",
-												children: [
-													doneCount,
-													" / ",
-													steps.length,
-													" completed"
-												]
-											})]
-										}), /* @__PURE__ */ jsxs(Badge, {
-											tone: progress === 100 ? "success" : "info",
-											children: [progress, "%"]
-										})]
-									}),
-									/* @__PURE__ */ jsx(ProgressBar, { progress }),
-									/* @__PURE__ */ jsx(Divider, {}),
-									/* @__PURE__ */ jsx(List, {
-										type: "bullet",
-										children: steps.map((s) => {
-											const locked = Boolean(s.proOnly) && !billing?.isPro;
-											return /* @__PURE__ */ jsx(List.Item, { children: /* @__PURE__ */ jsxs(InlineStack, {
-												align: "space-between",
-												blockAlign: "center",
-												children: [/* @__PURE__ */ jsxs(InlineStack, {
+					/* @__PURE__ */ jsx(DashboardCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
+						gap: "400",
+						children: [
+							/* @__PURE__ */ jsxs(InlineStack, {
+								align: "space-between",
+								blockAlign: "center",
+								children: [/* @__PURE__ */ jsxs(BlockStack, {
+									gap: "100",
+									children: [/* @__PURE__ */ jsx(Text, {
+										as: "h2",
+										variant: "headingMd",
+										children: "Onboarding checklist"
+									}), /* @__PURE__ */ jsxs(Text, {
+										as: "p",
+										variant: "bodySm",
+										children: [
+											doneCount,
+											" / ",
+											steps.length,
+											" completed"
+										]
+									})]
+								}), /* @__PURE__ */ jsxs(Badge, {
+									tone: progress === 100 ? "success" : "info",
+									children: [progress, "%"]
+								})]
+							}),
+							/* @__PURE__ */ jsx(ProgressBar, { progress }),
+							/* @__PURE__ */ jsx(Divider, {}),
+							/* @__PURE__ */ jsx(List, {
+								type: "bullet",
+								children: steps.map((s) => {
+									const locked = Boolean(s.proOnly) && !isProPlan;
+									return /* @__PURE__ */ jsx(List.Item, { children: /* @__PURE__ */ jsx("div", {
+										className: "gsChecklistItem",
+										children: /* @__PURE__ */ jsxs(InlineStack, {
+											align: "space-between",
+											blockAlign: "center",
+											gap: "300",
+											wrap: false,
+											children: [/* @__PURE__ */ jsx("div", {
+												className: "gsChecklistContent",
+												children: /* @__PURE__ */ jsxs(InlineStack, {
 													gap: "200",
 													blockAlign: "center",
+													wrap: false,
 													children: [/* @__PURE__ */ jsx(Badge, {
 														tone: s.done ? "success" : locked ? "critical" : "info",
 														children: s.done ? "Done" : locked ? "Pro" : "Todo"
@@ -14281,213 +14315,218 @@ var app_onboarding_default = UNSAFE_withComponentProps(function Onboarding() {
 														variant: "bodyMd",
 														children: s.label
 													})]
-												}), /* @__PURE__ */ jsx(Button, {
-													size: "slim",
-													disabled: locked,
-													url: withSearch(s.href),
-													variant: s.done ? "secondary" : "primary",
-													children: s.done ? "Open" : locked ? "Upgrade" : "Start"
-												})]
-											}) }, s.key);
+												})
+											}), /* @__PURE__ */ jsx(Button, {
+												size: "slim",
+												disabled: locked,
+												url: withSearch(s.href),
+												variant: s.done ? "secondary" : "primary",
+												children: s.done ? "Open" : locked ? "Upgrade" : "Start"
+											})]
 										})
+									}) }, s.key);
+								})
+							})
+						]
+					}) }),
+					/* @__PURE__ */ jsx(DashboardCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
+						gap: "400",
+						children: [
+							/* @__PURE__ */ jsx(Text, {
+								as: "h2",
+								variant: "headingMd",
+								children: "Quick actions"
+							}),
+							/* @__PURE__ */ jsxs(InlineStack, {
+								gap: "300",
+								wrap: true,
+								children: [
+									/* @__PURE__ */ jsx(Button, {
+										variant: "primary",
+										url: withSearch("/app/seo-tools?tab=products"),
+										children: "Generate for products"
+									}),
+									/* @__PURE__ */ jsx(Button, {
+										disabled: !isProPlan,
+										url: withSearch("/app/seo-tools?tab=images"),
+										children: "Generate ALT for images"
+									}),
+									/* @__PURE__ */ jsx(Button, {
+										disabled: !isProPlan,
+										url: withSearch("/app/seo-tools?tab=blog"),
+										children: "Generate for blog articles"
+									}),
+									/* @__PURE__ */ jsx(Button, {
+										url: withSearch("/app/generation-history"),
+										children: "View history"
 									})
 								]
-							}) })
-						}), /* @__PURE__ */ jsx("div", {
-							className: "gsCol",
-							children: /* @__PURE__ */ jsx(StretchCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
-								gap: "400",
+							}),
+							!isProPlan ? /* @__PURE__ */ jsx(Text, {
+								as: "p",
+								variant: "bodySm",
+								tone: "subdued",
+								children: "Image ALT and Blog generators are Pro features."
+							}) : /* @__PURE__ */ jsx(Text, {
+								as: "p",
+								variant: "bodySm",
+								tone: "subdued",
+								children: "Your Pro plan is active. Product SEO, Image ALT, and Blog SEO generators are unlocked."
+							})
+						]
+					}) }),
+					/* @__PURE__ */ jsx(DashboardCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
+						gap: "300",
+						children: [/* @__PURE__ */ jsx(Text, {
+							as: "h2",
+							variant: "headingMd",
+							children: "Plan & limits"
+						}), !isProPlan ? /* @__PURE__ */ jsxs(Banner, {
+							tone: "info",
+							title: "Free plan limits",
+							action: {
+								content: "Upgrade to Pro",
+								url: withSearch("/app/billing")
+							},
+							children: [/* @__PURE__ */ jsx(Text, {
+								as: "p",
+								variant: "bodyMd",
+								children: "Product SEO generation is available with a monthly limit. Image ALT and Blog SEO are Pro features."
+							}), freeLimit ? /* @__PURE__ */ jsxs(Text, {
+								as: "p",
+								variant: "bodyMd",
+								children: [
+									"Monthly product usage: ",
+									/* @__PURE__ */ jsx("b", { children: freeUsed }),
+									" /",
+									" ",
+									/* @__PURE__ */ jsx("b", { children: freeLimit }),
+									" ",
+									"(remaining: ",
+									/* @__PURE__ */ jsx("b", { children: freeRemaining }),
+									")"
+								]
+							}) : null]
+						}) : /* @__PURE__ */ jsx(Banner, {
+							tone: "success",
+							title: "Pro plan active",
+							children: /* @__PURE__ */ jsxs(BlockStack, {
+								gap: "200",
 								children: [
 									/* @__PURE__ */ jsx(Text, {
-										as: "h2",
-										variant: "headingMd",
-										children: "Quick actions"
+										as: "p",
+										variant: "bodyMd",
+										children: "Your Pro plan is active. All AI SEO generators are unlocked."
 									}),
-									/* @__PURE__ */ jsxs(InlineStack, {
-										gap: "300",
-										wrap: true,
-										children: [
-											/* @__PURE__ */ jsx(Button, {
-												variant: "primary",
-												url: withSearch("/app/seo-tools?tab=products"),
-												children: "Generate for products"
-											}),
-											/* @__PURE__ */ jsx(Button, {
-												disabled: !billing?.isPro,
-												url: withSearch("/app/seo-tools?tab=images"),
-												children: "Generate ALT for images"
-											}),
-											/* @__PURE__ */ jsx(Button, {
-												disabled: !billing?.isPro,
-												url: withSearch("/app/seo-tools?tab=blog"),
-												children: "Generate for blog articles"
-											}),
-											/* @__PURE__ */ jsx(Button, {
-												url: withSearch("/app/generation-history"),
-												children: "View history"
-											})
-										]
+									/* @__PURE__ */ jsx(Text, {
+										as: "p",
+										variant: "bodyMd",
+										children: "You can generate SEO titles and descriptions for products, ALT text for product images, and SEO metadata for blog articles."
 									}),
-									!billing?.isPro ? /* @__PURE__ */ jsx(Text, {
+									/* @__PURE__ */ jsxs(Text, {
 										as: "p",
 										variant: "bodySm",
 										tone: "subdued",
-										children: "Image ALT and Blog generators are Pro features."
-									}) : null
-								]
-							}) })
-						})]
-					}),
-					/* @__PURE__ */ jsxs("div", {
-						className: "gsRow",
-						children: [/* @__PURE__ */ jsx("div", {
-							className: "gsCol",
-							children: /* @__PURE__ */ jsx(StretchCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
-								gap: "300",
-								children: [/* @__PURE__ */ jsx(Text, {
-									as: "h2",
-									variant: "headingMd",
-									children: "Plan & limits"
-								}), !billing?.isPro ? /* @__PURE__ */ jsxs(Banner, {
-									tone: "info",
-									title: "Free plan limits",
-									action: {
-										content: "Upgrade to Pro",
-										url: withSearch("/app/billing")
-									},
-									children: [/* @__PURE__ */ jsx(Text, {
-										as: "p",
-										variant: "bodyMd",
-										children: "Product SEO generation is available with a monthly limit. Image ALT and Blog SEO are Pro features."
-									}), freeLimit ? /* @__PURE__ */ jsxs(Text, {
-										as: "p",
-										variant: "bodyMd",
-										children: [
-											"Monthly product usage: ",
-											/* @__PURE__ */ jsx("b", { children: freeUsed }),
-											" / ",
-											/* @__PURE__ */ jsx("b", { children: freeLimit }),
-											" (remaining: ",
-											/* @__PURE__ */ jsx("b", { children: freeRemaining }),
-											")"
-										]
-									}) : null]
-								}) : /* @__PURE__ */ jsx(Banner, {
-									tone: "success",
-									title: "Pro plan active",
-									children: /* @__PURE__ */ jsx(Text, {
-										as: "p",
-										variant: "bodyMd",
-										children: "All generators are unlocked."
-									})
-								})]
-							}) })
-						}), /* @__PURE__ */ jsx("div", {
-							className: "gsCol",
-							children: /* @__PURE__ */ jsx(StretchCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
-								gap: "300",
-								children: [
-									/* @__PURE__ */ jsx(Text, {
-										as: "h2",
-										variant: "headingMd",
-										children: "Activity"
-									}),
-									/* @__PURE__ */ jsxs(Text, {
-										as: "p",
-										variant: "bodyMd",
-										children: ["Product jobs: ", /* @__PURE__ */ jsx("b", { children: stats?.productJobs || 0 })]
-									}),
-									/* @__PURE__ */ jsxs(Text, {
-										as: "p",
-										variant: "bodyMd",
-										children: ["Image jobs: ", /* @__PURE__ */ jsx("b", { children: stats?.imageJobs || 0 })]
-									}),
-									/* @__PURE__ */ jsxs(Text, {
-										as: "p",
-										variant: "bodyMd",
-										children: ["Blog jobs: ", /* @__PURE__ */ jsx("b", { children: stats?.blogJobs || 0 })]
-									}),
-									/* @__PURE__ */ jsxs(Text, {
-										as: "p",
-										variant: "bodyMd",
-										children: ["Total jobs: ", /* @__PURE__ */ jsx("b", { children: stats?.totalJobs || 0 })]
-									}),
-									/* @__PURE__ */ jsx(Divider, {}),
-									/* @__PURE__ */ jsx(Text, {
-										as: "p",
-										variant: "bodySm",
-										tone: "subdued",
-										children: "Tip: Start with 5–10 products, review the results, then scale up."
+										children: ["Plan: ", /* @__PURE__ */ jsx("b", { children: billing?.planKey || "Pro" })]
 									})
 								]
-							}) })
+							})
 						})]
-					}),
-					/* @__PURE__ */ jsxs("div", {
-						className: "gsRow",
-						children: [/* @__PURE__ */ jsx("div", {
-							className: "gsCol",
-							children: /* @__PURE__ */ jsx(StretchCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
-								gap: "300",
-								children: [/* @__PURE__ */ jsx(Text, {
-									as: "h2",
-									variant: "headingMd",
-									children: "Best practices"
-								}), /* @__PURE__ */ jsxs(List, {
-									type: "bullet",
-									children: [
-										/* @__PURE__ */ jsx(List.Item, { children: "Keep titles under ~60 characters." }),
-										/* @__PURE__ */ jsx(List.Item, { children: "Use one clear keyword, avoid stuffing." }),
-										/* @__PURE__ */ jsx(List.Item, { children: "Write descriptions that match the product and audience." }),
-										/* @__PURE__ */ jsx(List.Item, { children: "ALT text: describe what you see + product context." })
-									]
-								})]
-							}) })
-						}), /* @__PURE__ */ jsx("div", {
-							className: "gsCol",
-							children: /* @__PURE__ */ jsx(StretchCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
-								gap: "300",
+					}) }),
+					/* @__PURE__ */ jsx(DashboardCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
+						gap: "300",
+						children: [
+							/* @__PURE__ */ jsx(Text, {
+								as: "h2",
+								variant: "headingMd",
+								children: "Activity"
+							}),
+							/* @__PURE__ */ jsxs(Text, {
+								as: "p",
+								variant: "bodyMd",
+								children: ["Product jobs: ", /* @__PURE__ */ jsx("b", { children: stats?.productJobs || 0 })]
+							}),
+							/* @__PURE__ */ jsxs(Text, {
+								as: "p",
+								variant: "bodyMd",
+								children: ["Image jobs: ", /* @__PURE__ */ jsx("b", { children: stats?.imageJobs || 0 })]
+							}),
+							/* @__PURE__ */ jsxs(Text, {
+								as: "p",
+								variant: "bodyMd",
+								children: ["Blog jobs: ", /* @__PURE__ */ jsx("b", { children: stats?.blogJobs || 0 })]
+							}),
+							/* @__PURE__ */ jsxs(Text, {
+								as: "p",
+								variant: "bodyMd",
+								children: ["Total jobs: ", /* @__PURE__ */ jsx("b", { children: stats?.totalJobs || 0 })]
+							}),
+							/* @__PURE__ */ jsx(Divider, {}),
+							/* @__PURE__ */ jsx(Text, {
+								as: "p",
+								variant: "bodySm",
+								tone: "subdued",
+								children: "Tip: Start with 5–10 products, review the results, then scale up."
+							})
+						]
+					}) }),
+					/* @__PURE__ */ jsx(DashboardCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
+						gap: "300",
+						children: [/* @__PURE__ */ jsx(Text, {
+							as: "h2",
+							variant: "headingMd",
+							children: "Best practices"
+						}), /* @__PURE__ */ jsxs(List, {
+							type: "bullet",
+							children: [
+								/* @__PURE__ */ jsx(List.Item, { children: "Keep titles under ~60 characters." }),
+								/* @__PURE__ */ jsx(List.Item, { children: "Use one clear keyword, avoid stuffing." }),
+								/* @__PURE__ */ jsx(List.Item, { children: "Write descriptions that match the product and audience." }),
+								/* @__PURE__ */ jsx(List.Item, { children: "ALT text: describe what you see + product context." })
+							]
+						})]
+					}) }),
+					/* @__PURE__ */ jsx(DashboardCard, { children: /* @__PURE__ */ jsxs(BlockStack, {
+						gap: "300",
+						children: [
+							/* @__PURE__ */ jsx(Text, {
+								as: "h2",
+								variant: "headingMd",
+								children: "Shortcuts"
+							}),
+							/* @__PURE__ */ jsxs(InlineStack, {
+								gap: "200",
+								wrap: true,
 								children: [
-									/* @__PURE__ */ jsx(Text, {
-										as: "h2",
-										variant: "headingMd",
-										children: "Shortcuts"
+									/* @__PURE__ */ jsx(Button, {
+										url: withSearch("/app/seo-tools"),
+										children: "SEO Tools"
 									}),
-									/* @__PURE__ */ jsxs(InlineStack, {
-										gap: "200",
-										wrap: true,
-										children: [
-											/* @__PURE__ */ jsx(Button, {
-												url: withSearch("/app/seo-tools"),
-												children: "SEO Tools"
-											}),
-											/* @__PURE__ */ jsx(Button, {
-												url: withSearch("/app/generation-history"),
-												children: "Generation History"
-											}),
-											/* @__PURE__ */ jsx(Button, {
-												url: withSearch("/app/settings"),
-												children: "Settings"
-											}),
-											/* @__PURE__ */ jsx(Button, {
-												url: withSearch("/app/billing"),
-												children: "Billing"
-											})
-										]
+									/* @__PURE__ */ jsx(Button, {
+										url: withSearch("/app/generation-history"),
+										children: "Generation History"
 									}),
-									!isConfigured ? /* @__PURE__ */ jsx(Text, {
-										as: "p",
-										variant: "bodySm",
-										tone: "subdued",
-										children: "Complete Settings to get the best results."
-									}) : null
+									/* @__PURE__ */ jsx(Button, {
+										url: withSearch("/app/settings"),
+										children: "Settings"
+									}),
+									/* @__PURE__ */ jsx(Button, {
+										url: withSearch("/app/billing"),
+										children: "Billing"
+									})
 								]
-							}) })
-						})]
-					})
+							}),
+							!isConfigured ? /* @__PURE__ */ jsx(Text, {
+								as: "p",
+								variant: "bodySm",
+								tone: "subdued",
+								children: "Complete Settings to get the best results."
+							}) : null
+						]
+					}) })
 				]
-			})]
-		})
+			})
+		})]
 	});
 });
 var headers$4 = (headersArgs) => boundary.headers(headersArgs);
@@ -14495,7 +14534,7 @@ var headers$4 = (headersArgs) => boundary.headers(headersArgs);
 //#region app/routes/app.seo-tools.jsx
 var app_seo_tools_exports = /* @__PURE__ */ __exportAll({
 	ErrorBoundary: () => ErrorBoundary$2,
-	action: () => action$3,
+	action: () => action$2,
 	default: () => app_seo_tools_default,
 	loader: () => loader$6
 });
@@ -14774,7 +14813,10 @@ var loader$6 = async ({ request }) => {
 		blogError = e?.message || String(e);
 		blogArticles = [];
 	}
-	const billing = await getBillingContext(session.shop);
+	const billing = await getBillingContext({
+		shop: session.shop,
+		admin
+	});
 	return jsonResponse$1({
 		shop: session.shop,
 		tab,
@@ -14804,11 +14846,14 @@ var loader$6 = async ({ request }) => {
 		}
 	});
 };
-var action$3 = async ({ request }) => {
+var action$2 = async ({ request }) => {
 	const { admin, session } = await authenticate.admin(request);
 	const form = await request.formData();
 	const intent = String(form.get("intent") || "");
-	const billing = await getBillingContext(session.shop);
+	const billing = await getBillingContext({
+		shop: session.shop,
+		admin
+	});
 	if (intent === "update_image_alt") {
 		const productId = String(form.get("productId") || "").trim();
 		const mediaId = String(form.get("mediaId") || "").trim();
@@ -14863,21 +14908,23 @@ var action$3 = async ({ request }) => {
 			ok: false,
 			error: "No selected items"
 		}, 400);
-		const reservation = await reserveIfFreePlan({
-			shop: session.shop,
-			productCount: productIds.length
-		});
-		if (!reservation.ok) return jsonResponse$1({
-			ok: false,
-			code: reservation.code || "FREE_LIMIT_EXCEEDED",
-			error: "Free plan limit exceeded",
-			billing: {
-				planKey: reservation.planKey,
-				mode: reservation.mode,
-				free: reservation.free,
-				limit: BILLING_PLANS.FREE.monthlyProductLimit
-			}
-		}, 402);
+		if (!billing.isPro) {
+			const reservation = await reserveIfFreePlan({
+				shop: session.shop,
+				productCount: productIds.length
+			});
+			if (!reservation.ok) return jsonResponse$1({
+				ok: false,
+				code: reservation.code || "FREE_LIMIT_EXCEEDED",
+				error: "Free plan limit exceeded",
+				billing: {
+					planKey: reservation.planKey,
+					mode: reservation.mode,
+					free: reservation.free,
+					limit: BILLING_PLANS.FREE.monthlyProductLimit
+				}
+			}, 402);
+		}
 		const metaTitle = String(form.get("metaTitle") || "true") === "true";
 		const metaDescription = String(form.get("metaDescription") || "true") === "true";
 		const formSettings = safeParse(String(form.get("settingsJson") || "{}"), {});
@@ -14894,7 +14941,7 @@ var action$3 = async ({ request }) => {
 					metaDescription
 				}
 			},
-			usageReserved: true,
+			usageReserved: !billing.isPro,
 			productIds,
 			productTitlesById: titlesById
 		});
@@ -14927,21 +14974,6 @@ var action$3 = async ({ request }) => {
 			ok: false,
 			error: "No selected images"
 		}, 400);
-		const reservation = await reserveIfFreePlan({
-			shop: session.shop,
-			productCount: images.length
-		});
-		if (!reservation.ok) return jsonResponse$1({
-			ok: false,
-			code: reservation.code || "FREE_LIMIT_EXCEEDED",
-			error: "Free plan limit exceeded",
-			billing: {
-				planKey: reservation.planKey,
-				mode: reservation.mode,
-				free: reservation.free,
-				limit: BILLING_PLANS.FREE.monthlyProductLimit
-			}
-		}, 402);
 		const formSettings = safeParse(String(form.get("settingsJson") || "{}"), {});
 		const settings = await getSettingsFromMetafield$1(admin) || formSettings || {};
 		const language = sanitizeLanguage(settings?.language || form.get("language") || "tr");
@@ -14951,7 +14983,7 @@ var action$3 = async ({ request }) => {
 				language,
 				settings
 			},
-			usageReserved: true,
+			usageReserved: false,
 			images
 		});
 		await enqueueSeoJob(job.id);
@@ -14976,21 +15008,6 @@ var action$3 = async ({ request }) => {
 			ok: false,
 			error: "No selected articles"
 		}, 400);
-		const reservation = await reserveIfFreePlan({
-			shop: session.shop,
-			productCount: articleIds.length
-		});
-		if (!reservation.ok) return jsonResponse$1({
-			ok: false,
-			code: reservation.code || "FREE_LIMIT_EXCEEDED",
-			error: "Free plan limit exceeded",
-			billing: {
-				planKey: reservation.planKey,
-				mode: reservation.mode,
-				free: reservation.free,
-				limit: BILLING_PLANS.FREE.monthlyProductLimit
-			}
-		}, 402);
 		const formSettings = safeParse(String(form.get("settingsJson") || "{}"), {});
 		const settings = await getSettingsFromMetafield$1(admin) || formSettings || {};
 		const language = sanitizeLanguage(settings?.language || form.get("language") || "tr");
@@ -15005,7 +15022,7 @@ var action$3 = async ({ request }) => {
 				language,
 				settings
 			},
-			usageReserved: true,
+			usageReserved: false,
 			articles
 		});
 		await enqueueSeoJob(job.id);
@@ -17018,7 +17035,7 @@ var ErrorBoundary$2 = UNSAFE_withErrorBoundaryProps(function ErrorBoundary() {
 //#region app/routes/app.settings.jsx
 var app_settings_exports = /* @__PURE__ */ __exportAll({
 	ErrorBoundary: () => ErrorBoundary$1,
-	action: () => action$2,
+	action: () => action$1,
 	default: () => app_settings_default,
 	loader: () => loader$5
 });
@@ -17093,7 +17110,7 @@ var loader$5 = async ({ request }) => {
 	const { settings } = await getSettingsFromMetafield(admin);
 	return { settings: settings || null };
 };
-var action$2 = async ({ request }) => {
+var action$1 = async ({ request }) => {
 	const { admin } = await authenticate.admin(request);
 	const form = await request.formData();
 	if (String(form.get("intent") || "") !== "save_settings") return {
@@ -17439,7 +17456,7 @@ var ErrorBoundary$1 = UNSAFE_withErrorBoundaryProps(function ErrorBoundary() {
 //#endregion
 //#region app/routes/app.billing.jsx
 var app_billing_exports = /* @__PURE__ */ __exportAll({
-	action: () => action$1,
+	action: () => action,
 	default: () => app_billing_default,
 	loader: () => loader$4
 });
@@ -17450,30 +17467,20 @@ function jsonResponse(data, status = 200) {
 	});
 }
 /**
-* billing.request() bazen Response(302) döner (Location header ile),
-* bazen JSON (confirmationUrl/url) döndürebilir.
+* Managed Pricing plan selection page:
+* https://admin.shopify.com/store/:store_handle/charges/:app_handle/pricing_plans
+* Docs: Shopify hosts plan selection page for managed pricing.
 */
-async function extractRedirectUrl(resp) {
-	if (!(resp instanceof Response)) return null;
-	const loc = resp.headers.get("Location") || resp.headers.get("location");
-	if (loc) return loc;
-	try {
-		const clone = resp.clone();
-		if ((clone.headers.get("content-type") || "").includes("application/json")) {
-			const j = await clone.json();
-			return j?.confirmationUrl || j?.url || null;
-		}
-	} catch (_) {}
-	return null;
+function getPlanSelectionUrl({ shop, appHandle }) {
+	return `https://admin.shopify.com/store/${String(shop || "").replace(".myshopify.com", "")}/charges/${appHandle}/pricing_plans`;
 }
-var PRO_PLAN = "pro";
 var loader$4 = async ({ request }) => {
 	const { authenticate } = await import("./assets/shopify.server-DYdEFcqS.js");
-	const { getBillingContext } = await import("./assets/billing.gating.server-Ct-YnoxI.js");
-	const { session, billing } = await authenticate.admin(request);
+	const { getBillingContext } = await import("./assets/billing.gating.server-172Vx-xu.js");
+	const { session, admin } = await authenticate.admin(request);
 	const ctx = await getBillingContext({
 		shop: session.shop,
-		billing
+		admin
 	});
 	return jsonResponse({
 		shop: session.shop,
@@ -17485,104 +17492,69 @@ var loader$4 = async ({ request }) => {
 		}
 	});
 };
-var action$1 = async ({ request }) => {
+var action = async ({ request }) => {
 	const { authenticate } = await import("./assets/shopify.server-DYdEFcqS.js");
-	const { getBillingContext, isTestBilling } = await import("./assets/billing.gating.server-Ct-YnoxI.js");
-	const { session, billing } = await authenticate.admin(request);
+	const { getBillingContext } = await import("./assets/billing.gating.server-172Vx-xu.js");
+	const { session, admin } = await authenticate.admin(request);
 	const form = await request.formData();
 	const intent = String(form.get("intent") || "");
-	const base = process.env.SHOPIFY_APP_URL || new URL(request.url).origin;
-	const returnUrl = new URL("/app/billing", base).toString();
+	process.env.SHOPIFY_APP_HANDLE || process.env.SHOPIFY_APP_HANDLE?.trim();
 	try {
 		if (intent === "subscribe_monthly" || intent === "subscribe_annual") {
-			const resp = await billing.request({
-				plan: PRO_PLAN,
-				isTest: isTestBilling(),
-				returnUrl
-			});
-			if (resp instanceof Response) {
-				const redirectUrl = await extractRedirectUrl(resp);
-				if (!redirectUrl) {
-					const status = resp.status;
-					const contentType = resp.headers.get("content-type");
-					let bodyPreview = "";
-					try {
-						bodyPreview = await resp.clone().text();
-						bodyPreview = bodyPreview?.slice(0, 500) || "";
-					} catch (_) {}
-					console.error("[BILLING] Missing redirect url", {
-						plan: PRO_PLAN,
-						returnUrl,
-						status,
-						contentType,
-						bodyPreview
-					});
-					return jsonResponse({
-						ok: false,
-						error: "Billing redirect response has no Location header.",
-						details: {
-							status,
-							contentType,
-							bodyPreview,
-							returnUrl
-						}
-					}, 500);
-				}
-				return jsonResponse({
-					ok: true,
-					redirectUrl
-				});
-			}
-			if (resp && typeof resp === "object") {
-				const redirectUrl = resp.confirmationUrl || resp.url;
-				if (redirectUrl) return jsonResponse({
-					ok: true,
-					redirectUrl
-				});
-			}
-			return jsonResponse({
+			if (!process.env.SHOPIFY_APP_HANDLE) return jsonResponse({
 				ok: false,
-				error: "Unknown billing response shape."
+				error: "Missing SHOPIFY_APP_HANDLE env. Set it to your app handle (e.g. ai-seo-assistant)."
 			}, 500);
-		}
-		if (intent === "cancel") {
-			const sub = (await getBillingContext({
-				shop: session.shop,
-				billing
-			})).activeSubscription;
-			if (!sub?.id) return jsonResponse({
-				ok: false,
-				error: "No active subscription found."
-			}, 400);
-			await billing.cancel({
-				subscriptionId: sub.id,
-				isTest: isTestBilling(),
-				prorate: true
+			return jsonResponse({
+				ok: true,
+				redirectUrl: getPlanSelectionUrl({
+					shop: session.shop,
+					appHandle: process.env.SHOPIFY_APP_HANDLE
+				})
 			});
-			return jsonResponse({ ok: true });
+		}
+		if (intent === "manage_plan") {
+			if (!process.env.SHOPIFY_APP_HANDLE) return jsonResponse({
+				ok: false,
+				error: "Missing SHOPIFY_APP_HANDLE env. Set it to your app handle (e.g. ai-seo-assistant)."
+			}, 500);
+			return jsonResponse({
+				ok: true,
+				redirectUrl: getPlanSelectionUrl({
+					shop: session.shop,
+					appHandle: process.env.SHOPIFY_APP_HANDLE
+				})
+			});
 		}
 		if (intent === "reset_usage") {
 			if (process.env.NODE_ENV === "production") return jsonResponse({
 				ok: false,
 				error: "Not allowed in production"
 			}, 403);
-			const { resetFreeUsageMonthly } = await import("./assets/billing.usage.server-BmkjtQvW.js");
+			const { resetFreeUsageMonthly } = await import("./assets/billing.usage.server-I30FzxOt.js");
 			await resetFreeUsageMonthly(session.shop);
 			return jsonResponse({ ok: true });
+		}
+		if (intent === "refresh") {
+			const ctx = await getBillingContext({
+				shop: session.shop,
+				admin
+			});
+			return jsonResponse({
+				ok: true,
+				billing: {
+					planKey: ctx.planKey,
+					isPro: ctx.isPro,
+					mode: ctx.mode,
+					free: ctx.free
+				}
+			});
 		}
 		return jsonResponse({
 			ok: false,
 			error: "Unknown intent"
 		}, 400);
 	} catch (e) {
-		if (e instanceof Response) {
-			const redirectUrl = await extractRedirectUrl(e);
-			if (redirectUrl) return jsonResponse({
-				ok: true,
-				redirectUrl
-			});
-			return e;
-		}
 		const msg = e instanceof Error ? e.message : String(e);
 		console.error("[BILLING] action error:", e);
 		return jsonResponse({
@@ -17605,9 +17577,6 @@ var app_billing_default = UNSAFE_withComponentProps(function Billing() {
 			window.location.href = redirectUrl;
 		}
 	}, [fetcher.data]);
-	useEffect(() => {
-		if (fetcher.state === "idle" && fetcher.data?.ok && !fetcher.data?.redirectUrl) window.location.reload();
-	}, [fetcher.state, fetcher.data]);
 	const free = billing?.free || {
 		used: 0,
 		remaining: 0,
@@ -17638,19 +17607,14 @@ var app_billing_default = UNSAFE_withComponentProps(function Billing() {
 		title: "Billing",
 		children: /* @__PURE__ */ jsxs(BlockStack, {
 			gap: "400",
-			children: [error ? /* @__PURE__ */ jsxs(Banner, {
+			children: [error ? /* @__PURE__ */ jsx(Banner, {
 				tone: "critical",
 				title: "Billing error",
-				children: [/* @__PURE__ */ jsx(Text, {
+				children: /* @__PURE__ */ jsx(Text, {
 					as: "p",
 					variant: "bodyMd",
 					children: String(error)
-				}), fetcher.data?.details ? /* @__PURE__ */ jsx(Text, {
-					as: "p",
-					variant: "bodySm",
-					tone: "subdued",
-					children: JSON.stringify(fetcher.data.details)
-				}) : null]
+				})
 			}) : null, /* @__PURE__ */ jsxs(Layout, { children: [/* @__PURE__ */ jsx(Layout.Section, {
 				variant: "oneHalf",
 				children: /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, {
@@ -17814,13 +17778,13 @@ var app_billing_default = UNSAFE_withComponentProps(function Billing() {
 							children: [/* @__PURE__ */ jsx("input", {
 								type: "hidden",
 								name: "intent",
-								value: "cancel"
+								value: "manage_plan"
 							}), /* @__PURE__ */ jsx(Button, {
 								submit: true,
-								tone: "critical",
+								variant: "primary",
 								loading: isSubmitting,
 								disabled: isSubmitting,
-								children: "Cancel subscription"
+								children: "Manage plan"
 							})]
 						})
 					]
@@ -17871,150 +17835,22 @@ var app_support_default = UNSAFE_withComponentProps(function Redirect() {
 //#region app/routes/app._index.jsx
 var app__index_exports = /* @__PURE__ */ __exportAll({
 	ErrorBoundary: () => ErrorBoundary,
-	action: () => action,
 	default: () => app__index_default,
 	headers: () => headers$1,
 	loader: () => loader$1
 });
 var loader$1 = async ({ request }) => {
 	await authenticate.admin(request);
+	return redirect(`/app/onboarding${new URL(request.url).search || ""}`);
+};
+var app__index_default = UNSAFE_withComponentProps(function AppIndex() {
 	return null;
-};
-var action = async ({ request }) => {
-	const { admin } = await authenticate.admin(request);
-	const formData = await request.formData();
-	if (String(formData.get("intent") || "") !== "create_sample_product") return {
-		ok: false,
-		error: "Unknown intent"
-	};
-	const title = `${[
-		"Red",
-		"Orange",
-		"Yellow",
-		"Green"
-	][Math.floor(Math.random() * 4)]} Snowboard (AI SEO Assistant)`;
-	const payload = (await (await admin.graphql(`#graphql
-    mutation CreateProduct($input: ProductInput!) {
-      productCreate(input: $input) {
-        product { id title handle }
-        userErrors { field message }
-      }
-    }
-  `, { variables: { input: { title } } })).json())?.data?.productCreate;
-	const userErrors = payload?.userErrors || [];
-	if (userErrors.length) return {
-		ok: false,
-		userErrors
-	};
-	return {
-		ok: true,
-		product: payload?.product
-	};
-};
-var app__index_default = UNSAFE_withComponentProps(function AppHome() {
-	const location = useLocation();
-	const withSearch = (path) => `${path}${location.search || ""}`;
-	const fetcher = useFetcher();
-	const data = fetcher.data;
-	const hasErrors = Array.isArray(data?.userErrors) && data.userErrors.length > 0;
-	const jsonPretty = useMemo(() => {
-		if (!data) return "";
-		try {
-			return JSON.stringify(data, null, 2);
-		} catch {
-			return String(data);
-		}
-	}, [data]);
-	return /* @__PURE__ */ jsx(Page, {
-		title: "AI SEO Assistant",
-		children: /* @__PURE__ */ jsx(Layout, { children: /* @__PURE__ */ jsx(Layout.Section, { children: /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, {
-			gap: "400",
-			children: [
-				/* @__PURE__ */ jsx(Text, {
-					as: "p",
-					variant: "bodyMd",
-					children: "This app uses Shopify Polaris for a native Admin look & feel."
-				}),
-				/* @__PURE__ */ jsxs(InlineStack, {
-					gap: "300",
-					align: "start",
-					children: [/* @__PURE__ */ jsx(Button, {
-						variant: "primary",
-						loading: fetcher.state !== "idle",
-						onClick: () => fetcher.submit({ intent: "create_sample_product" }, { method: "post" }),
-						children: "Create a sample product"
-					}), /* @__PURE__ */ jsx(Button, {
-						url: "https://shopify.dev/docs/api/admin-graphql",
-						external: true,
-						children: "Admin GraphQL docs"
-					})]
-				}),
-				data && /* @__PURE__ */ jsxs(Fragment, { children: [hasErrors ? /* @__PURE__ */ jsx(Banner, {
-					title: "Shopify returned errors",
-					tone: "critical",
-					children: /* @__PURE__ */ jsx(BlockStack, {
-						gap: "200",
-						children: data.userErrors.map((e, i) => /* @__PURE__ */ jsx(Text, {
-							as: "p",
-							variant: "bodyMd",
-							children: e.message
-						}, i))
-					})
-				}) : data.ok ? /* @__PURE__ */ jsx(Banner, {
-					title: "Done",
-					tone: "success",
-					children: /* @__PURE__ */ jsx(Text, {
-						as: "p",
-						variant: "bodyMd",
-						children: "Sample product created successfully."
-					})
-				}) : data.error ? /* @__PURE__ */ jsx(Banner, {
-					title: "Error",
-					tone: "critical",
-					children: /* @__PURE__ */ jsx(Text, {
-						as: "p",
-						variant: "bodyMd",
-						children: data.error
-					})
-				}) : null, /* @__PURE__ */ jsx(Card, { children: /* @__PURE__ */ jsxs(BlockStack, {
-					gap: "200",
-					children: [/* @__PURE__ */ jsx(Text, {
-						as: "h2",
-						variant: "headingMd",
-						children: "Response"
-					}), /* @__PURE__ */ jsx(TextField, {
-						label: "",
-						value: jsonPretty,
-						multiline: 10,
-						readOnly: true,
-						monospaced: true,
-						autoComplete: "off"
-					})]
-				}) })] }),
-				/* @__PURE__ */ jsxs(Text, {
-					as: "p",
-					variant: "bodySm",
-					tone: "subdued",
-					children: [
-						"Tip: Use the",
-						" ",
-						/* @__PURE__ */ jsx(Link, {
-							to: withSearch("/app/seo-tools"),
-							children: "SEO Tools"
-						}),
-						" ",
-						"page to generate SEO titles/descriptions with Polaris UI."
-					]
-				})
-			]
-		}) }) }) })
-	});
 });
 var headers$1 = (headersArgs) => boundary.headers(headersArgs);
 /** ---------------- route ErrorBoundary ---------------- */
 var ErrorBoundary = UNSAFE_withErrorBoundaryProps(function ErrorBoundary() {
 	const err = useRouteError();
-	console.error("Dashboard ErrorBoundary:", err);
+	console.error("App index redirect ErrorBoundary:", err);
 	let bannerTitle = "Something went wrong";
 	let message = "Unknown error";
 	if (isRouteErrorResponse(err)) {
@@ -18023,7 +17859,7 @@ var ErrorBoundary = UNSAFE_withErrorBoundaryProps(function ErrorBoundary() {
 	} else if (err instanceof Error) message = err.message;
 	else message = String(err);
 	return /* @__PURE__ */ jsx(Page, {
-		title: "Dashboard",
+		title: "AI SEO Assistant",
 		fullWidth: true,
 		children: /* @__PURE__ */ jsx(Banner, {
 			tone: "critical",
@@ -18470,7 +18306,7 @@ var server_manifest_default = {
 			"hasClientMiddleware": false,
 			"hasDefaultExport": true,
 			"hasErrorBoundary": false,
-			"module": "/assets/app.onboarding-Y6BORRbC.js",
+			"module": "/assets/app.onboarding-2q4OZsOL.js",
 			"imports": [
 				"/assets/chunk-5KNZJZUH-CXZH0_bv.js",
 				"/assets/Page-BNa-5ixz.js",
@@ -18577,7 +18413,7 @@ var server_manifest_default = {
 			"hasClientMiddleware": false,
 			"hasDefaultExport": true,
 			"hasErrorBoundary": false,
-			"module": "/assets/app.billing-CjB7o-Js.js",
+			"module": "/assets/app.billing-nyk1BCv0.js",
 			"imports": [
 				"/assets/chunk-5KNZJZUH-CXZH0_bv.js",
 				"/assets/Page-BNa-5ixz.js",
@@ -18645,20 +18481,18 @@ var server_manifest_default = {
 			"path": void 0,
 			"index": true,
 			"caseSensitive": void 0,
-			"hasAction": true,
+			"hasAction": false,
 			"hasLoader": true,
 			"hasClientAction": false,
 			"hasClientLoader": false,
 			"hasClientMiddleware": false,
 			"hasDefaultExport": true,
 			"hasErrorBoundary": true,
-			"module": "/assets/app._index-B_YoTpAg.js",
+			"module": "/assets/app._index-BBc6LKSy.js",
 			"imports": [
 				"/assets/chunk-5KNZJZUH-CXZH0_bv.js",
 				"/assets/Page-BNa-5ixz.js",
 				"/assets/Banner-BosuaafW.js",
-				"/assets/Card-Cj-qXULP.js",
-				"/assets/Layout-B8kURo9S.js",
 				"/assets/jsx-runtime-DH9-qhHI.js",
 				"/assets/context-DCabL2qx.js",
 				"/assets/react-dom-BLfcpCoe.js",
@@ -18692,8 +18526,8 @@ var server_manifest_default = {
 			"hydrateFallbackModule": void 0
 		}
 	},
-	"url": "/assets/manifest-c726d4a7.js",
-	"version": "c726d4a7",
+	"url": "/assets/manifest-14b6243d.js",
+	"version": "14b6243d",
 	"sri": void 0
 };
 //#endregion

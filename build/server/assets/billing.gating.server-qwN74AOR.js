@@ -1,4 +1,4 @@
-import { r as reserveFreeUsageMonthly, t as getFreeUsageMonthly } from "./billing.usage.server-CPe2tTKk.js";
+import { r as reserveFreeUsageMonthly, t as getFreeUsageMonthly } from "./billing.usage.server-D9uZ7pSb.js";
 //#region app/billing.plans.js
 var BILLING_PLANS = {
 	FREE: {
@@ -35,8 +35,28 @@ var BILLING_PLANS = {
 };
 //#endregion
 //#region app/billing.gating.server.js
-function isTestBilling() {
-	return String(process.env.SHOPIFY_BILLING_TEST || "").toLowerCase() === "true";
+function isDevForceProEnabled() {
+	return process.env.NODE_ENV !== "production" && String(process.env.DEV_FORCE_PRO || "").toLowerCase() === "true";
+}
+function devForceProContext({ freeLimit, usage }) {
+	return {
+		planKey: "pro_dev",
+		isPro: true,
+		mode: "dev_force_pro",
+		free: {
+			monthlyLimit: freeLimit,
+			limit: freeLimit,
+			used: usage?.used || 0,
+			remaining: freeLimit,
+			...usage
+		},
+		activeSubscription: {
+			id: "dev_force_pro",
+			name: "Pro Dev",
+			status: "ACTIVE",
+			test: true
+		}
+	};
 }
 async function fetchActiveSubs(admin) {
 	const subs = (await (await admin.graphql(`#graphql
@@ -53,9 +73,17 @@ async function fetchActiveSubs(admin) {
   `)).json())?.data?.currentAppInstallation?.activeSubscriptions || [];
 	return Array.isArray(subs) ? subs : [];
 }
-async function getBillingContext({ shop, admin }) {
+async function getBillingContext(input = {}) {
+	const { shop, admin } = typeof input === "string" ? {
+		shop: input,
+		admin: null
+	} : input || {};
 	const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
 	const usage = await getFreeUsageMonthly(shop, freeLimit);
+	if (isDevForceProEnabled()) return devForceProContext({
+		freeLimit,
+		usage
+	});
 	if (!admin) return {
 		planKey: "free",
 		isPro: false,
@@ -89,14 +117,55 @@ async function getBillingContext({ shop, admin }) {
 		activeSubscription: active
 	};
 }
-async function reserveIfFreePlan({ shop, productCount }) {
+async function reserveIfFreePlan({ shop, productCount, admin = null }) {
 	const freeLimit = BILLING_PLANS.FREE.monthlyProductLimit;
 	const usage = await getFreeUsageMonthly(shop, freeLimit);
+	if (isDevForceProEnabled()) return {
+		ok: true,
+		code: "DEV_FORCE_PRO",
+		planKey: "pro_dev",
+		isPro: true,
+		mode: "dev_force_pro",
+		free: {
+			monthlyLimit: freeLimit,
+			limit: freeLimit,
+			...usage,
+			remaining: freeLimit
+		}
+	};
+	if (admin) {
+		let subs = [];
+		try {
+			subs = await fetchActiveSubs(admin);
+		} catch (e) {
+			console.error("[BILLING] reserveIfFreePlan fetchActiveSubs error:", {
+				shop,
+				name: e?.name,
+				message: e?.message
+			});
+		}
+		const active = subs.find((s) => s?.status === "ACTIVE") || null;
+		if (active) return {
+			ok: true,
+			code: "PRO_ACTIVE",
+			planKey: "pro",
+			isPro: true,
+			mode: "shopify",
+			free: {
+				monthlyLimit: freeLimit,
+				limit: freeLimit,
+				...usage,
+				remaining: freeLimit
+			},
+			activeSubscription: active
+		};
+	}
 	const reservation = await reserveFreeUsageMonthly(shop, productCount, freeLimit);
 	return {
 		ok: reservation.ok,
 		code: reservation.code,
 		planKey: "free",
+		isPro: false,
 		mode: "shopify",
 		free: {
 			monthlyLimit: freeLimit,
@@ -106,4 +175,4 @@ async function reserveIfFreePlan({ shop, productCount }) {
 	};
 }
 //#endregion
-export { BILLING_PLANS as i, isTestBilling as n, reserveIfFreePlan as r, getBillingContext as t };
+export { reserveIfFreePlan as n, BILLING_PLANS as r, getBillingContext as t };
